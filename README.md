@@ -1,11 +1,5 @@
 <div align="center">
-  <img src="https://capsule-render.vercel.app/api?type=waving&color=0:F97316,50:FBBF24,100:F97316&height=220&section=header&text=🎵%20EnsembleSync&fontSize=60&fontColor=fff&animation=twinkling&fontAlignY=38&desc=합주%20피드백%20협업%20플랫폼&descAlignY=58&descSize=20&descColor=fff"/>
-</div>
-
-<div align="center">
-  <a href="https://git.io/typing-svg">
-    <img src="https://readme-typing-svg.demolab.com?font=Fira+Code&weight=700&size=20&pause=1000&color=FBBF24&center=true&vCenter=true&random=false&width=600&lines=🎼+실시간+악보+협업;🥁+BPM+%2F+피치+분석;🎸+음원+트랙+분리;🎯+싱크로율+계산" alt="Typing SVG" />
-  </a>
+  <img src="https://capsule-render.vercel.app/api?type=slice&color=0:F97316,100:FBBF24&height=200&text=🎵%20EnsembleSync&fontSize=52&fontColor=fff&fontAlignY=70&desc=합주%20피드백%20협업%20플랫폼&descAlignY=88&descSize=18&descColor=fff&rotate=6"/>
 </div>
 
 <br/>
@@ -114,5 +108,5 @@
 <br/>
 
 <div align="center">
-  <img src="https://capsule-render.vercel.app/api?type=waving&color=0:F97316,50:FBBF24,100:F97316&height=120&section=footer"/>
+  <img src="https://capsule-render.vercel.app/api?type=slice&color=0:FBBF24,100:F97316&height=120&section=footer&reversal=true"/>
 </div>
