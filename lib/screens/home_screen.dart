@@ -10,12 +10,29 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen>
+    with SingleTickerProviderStateMixin {
   static const _purple = Color(0xFF8B5CF6);
 
   final _nicknameController = TextEditingController();
   bool _isLoading = false;
   bool get _hasNickname => _nicknameController.text.trim().isNotEmpty;
+
+  // 흔들기 애니메이션
+  late final AnimationController _shakeController = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 400),
+  );
+  late final Animation<double> _shakeAnimation = TweenSequence([
+    TweenSequenceItem(tween: Tween(begin: 0.0, end: -10.0), weight: 1),
+    TweenSequenceItem(tween: Tween(begin: -10.0, end: 10.0), weight: 2),
+    TweenSequenceItem(tween: Tween(begin: 10.0, end: -10.0), weight: 2),
+    TweenSequenceItem(tween: Tween(begin: -10.0, end: 10.0), weight: 2),
+    TweenSequenceItem(tween: Tween(begin: 10.0, end: 0.0), weight: 1),
+  ]).animate(CurvedAnimation(
+    parent: _shakeController,
+    curve: Curves.easeInOut,
+  ));
 
   @override
   void initState() {
@@ -26,11 +43,20 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     _nicknameController.dispose();
+    _shakeController.dispose();
     super.dispose();
   }
 
+  void _shake() {
+    _shakeController.forward(from: 0);
+  }
+
   Future<void> _onCreateRoom() async {
-    if (!_hasNickname || _isLoading) return;
+    if (!_hasNickname) {
+      _shake();
+      return;
+    }
+    if (_isLoading) return;
     setState(() => _isLoading = true);
     try {
       final result = await ApiService().createRoom(_nicknameController.text.trim());
@@ -55,7 +81,10 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _onJoinRoom() {
-    if (!_hasNickname) return;
+    if (!_hasNickname) {
+      _shake();
+      return;
+    }
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -112,7 +141,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 const SizedBox(height: 48),
 
-                // ── 닉네임 입력 ────────────────────────────────
+                // ── 닉네임 입력 (흔들기 적용) ──────────────────
                 Align(
                   alignment: Alignment.centerLeft,
                   child: Text(
@@ -125,28 +154,37 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
                 const SizedBox(height: 8),
-                TextField(
-                  controller: _nicknameController,
-                  maxLength: 20,
-                  textInputAction: TextInputAction.done,
-                  decoration: InputDecoration(
-                    hintText: '이름을 입력하세요...',
-                    hintStyle: const TextStyle(color: Color(0xFFBDBDBD)),
-                    counterText: '',
-                    contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 14),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide:
-                          const BorderSide(color: _purple, width: 1.5),
+                AnimatedBuilder(
+                  animation: _shakeAnimation,
+                  builder: (_, child) => Transform.translate(
+                    offset: Offset(_shakeAnimation.value, 0),
+                    child: child,
+                  ),
+                  child: TextField(
+                    controller: _nicknameController,
+                    maxLength: 20,
+                    textInputAction: TextInputAction.done,
+                    decoration: InputDecoration(
+                      hintText: '이름을 입력하세요...',
+                      hintStyle: const TextStyle(color: Color(0xFFBDBDBD)),
+                      counterText: '',
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 14),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide:
+                            const BorderSide(color: Color(0xFFE5E7EB)),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide:
+                            const BorderSide(color: Color(0xFFE5E7EB)),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide:
+                            const BorderSide(color: _purple, width: 1.5),
+                      ),
                     ),
                   ),
                 ),
@@ -157,8 +195,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   width: double.infinity,
                   height: 50,
                   child: FilledButton.icon(
-                    onPressed:
-                        _hasNickname && !_isLoading ? _onCreateRoom : null,
+                    onPressed: _isLoading ? null : _onCreateRoom,
                     style: FilledButton.styleFrom(
                       backgroundColor: _purple,
                       disabledBackgroundColor: const Color(0xFFD1D5DB),
@@ -188,13 +225,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   width: double.infinity,
                   height: 50,
                   child: OutlinedButton.icon(
-                    onPressed: _hasNickname ? _onJoinRoom : null,
+                    onPressed: _onJoinRoom,
                     style: OutlinedButton.styleFrom(
-                      side: BorderSide(
-                        color: _hasNickname
-                            ? const Color(0xFFD1D5DB)
-                            : const Color(0xFFE5E7EB),
-                      ),
+                      side: const BorderSide(color: Color(0xFFD1D5DB)),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
