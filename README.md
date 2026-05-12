@@ -100,7 +100,6 @@
 | <img src="https://github.com/rlaalswo1222.png" width="80px" height="80px" style="border-radius:50%"/> | <img src="https://github.com/ghost.png" width="80px" height="80px" style="border-radius:50%"/> | <img src="https://github.com/ghost.png" width="80px" height="80px" style="border-radius:50%"/> | <img src="https://github.com/ghost.png" width="80px" height="80px" style="border-radius:50%"/> |
 |:---:|:---:|:---:|:---:|
 | **김민재** | **임지수** | **최기훈** | **문준호** |
-| PM / Flutter UI | Flutter UI | Backend | DB 설계 |
 | [@rlaalswo1222](https://github.com/rlaalswo1222) | - | - | - |
 
 </div>
