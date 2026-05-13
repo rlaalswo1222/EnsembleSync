@@ -16,7 +16,7 @@ app.add_middleware(
     allow_headers=["*"],  # 모든 데이터 형식 허락
 )
 
-# 1. Request 데이터 모델 (API 명세서 유지)
+# 1. 방 생성 로직 (/api/room/create)
 class RoomCreateRequest(BaseModel):
     room_name: str
     creator_name: str
@@ -66,4 +66,62 @@ async def create_room(request: RoomCreateRequest):
         return {
             "status": 500,
             "message": f"방 생성 중 오류가 발생했습니다: {str(e)}"
+        }
+        
+        
+# 2. 방 입장 로직 (/api/room/join)
+# ==========================================
+# 프론트엔드가 보낼 방 입장 데이터 양식 (API 명세서 기준)
+class RoomJoinRequest(BaseModel):
+    room_code: str
+    user_name: str
+
+@app.post("/api/room/join")
+async def join_room(request: RoomJoinRequest):
+    try:
+        # ==========================================
+        # 🚨 [DB 처리 로직 시나리오 (ERD 기반)]
+        # DB 연결 코드가 세팅되면 주석을 해제하고 변수 맞추기
+        # ==========================================
+
+        # Step 1: room 테이블에서 room_code로 방 존재 여부 조회
+        # target_room = db.query(Room).filter(Room.room_code == request.room_code).first()
+        # if not target_room:
+        #     return {"status": 404, "message": "존재하지 않는 방 코드입니다."}
+
+        # Step 2: 🛡️ 방이 비활성화(is_active=False) 상태인지 확인
+        # if not target_room.is_active:
+        #     return {"status": 403, "message": "이미 종료된 합주 방입니다."}
+
+        # Step 3: 🛡️ 중복 참여 확인 (동일한 닉네임이 해당 방에 있는지)
+        # existing_participant = db.query(Participant).join(Member).filter(
+        #     Participant.room_id == target_room.id,
+        #     Member.nickname == request.user_name
+        # ).first()
+        # if existing_participant:
+        #     return {"status": 200, "message": "이미 참여 중인 방입니다.", "room_name": target_room.name}
+
+        # Step 4: member 테이블에 사용자(참여자) 정보 추가 및 ID 발급
+        # new_member = Member(nickname=request.user_name)
+        # db.add(new_member)
+        # db.flush()
+
+        # Step 5: room_participant 테이블에 일반 멤버(role='member')로 기록 추가
+        # new_participant = Participant(room_id=target_room.id, member_id=new_member.id, role='member')
+        # db.add(new_participant)
+        # db.commit()
+
+        # ==========================================
+
+        # Step 6: API 명세서 약속대로 응답 반환 (DB 연동 전 테스트용 응답)
+        return {
+            "status": 200,
+            "room_name": "4EVER 합주방 (테스트)", # 실제로는 target_room.name 반환
+            "message": "입장에 성공했습니다."
+        }
+
+    except Exception as e:
+        return {
+            "status": 500,
+            "message": f"방 입장 중 오류가 발생했습니다: {str(e)}"
         }
