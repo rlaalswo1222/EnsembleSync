@@ -26,7 +26,7 @@ def generate_room_code():
     letters_and_digits = string.ascii_uppercase + string.digits
     return ''.join(random.choice(letters_and_digits) for i in range(6))
 
-# 2. 방 생성 API 엔드포인트
+# 방 생성 API 엔드포인트
 @app.post("/api/room/create")
 async def create_room(request: RoomCreateRequest):
     try:
