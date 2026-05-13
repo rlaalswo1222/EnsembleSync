@@ -8,6 +8,9 @@ void main() {
 class EnsembleSyncApp extends StatelessWidget {
   const EnsembleSyncApp({super.key});
 
+  // ══════════════════════════════════════════════
+  // UI 시작 — 앱 전체 테마 및 첫 화면 설정
+  // ══════════════════════════════════════════════
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -24,4 +27,7 @@ class EnsembleSyncApp extends StatelessWidget {
       home: const HomeScreen(),
     );
   }
+  // ══════════════════════════════════════════════
+  // UI 끝
+  // ══════════════════════════════════════════════
 }

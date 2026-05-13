@@ -41,18 +41,16 @@ class _JoinRoomScreenState extends State<JoinRoomScreen> {
     if (!_isComplete || _isLoading) return;
     setState(() => _isLoading = true);
     try {
-      final result = await ApiService().joinRoom(
-        _codeController.text.toUpperCase(),
-        widget.nickname,
-      );
+      final enteredCode = _codeController.text.toUpperCase();
+      await ApiService().joinRoom(enteredCode, widget.nickname);
       if (!mounted) return;
       Navigator.pushAndRemoveUntil(
         context,
         MaterialPageRoute(
           builder: (_) => MainScreen(
             nickname: widget.nickname,
-            roomCode: result['room_code'] as String,
-            roomId: result['room_id']?.toString() ?? '',
+            roomCode: enteredCode,
+            roomId: '',
           ),
         ),
         (route) => false,
@@ -73,6 +71,9 @@ class _JoinRoomScreenState extends State<JoinRoomScreen> {
     );
   }
 
+  // ══════════════════════════════════════════════
+  // UI 시작
+  // ══════════════════════════════════════════════
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -191,7 +192,7 @@ class _JoinRoomScreenState extends State<JoinRoomScreen> {
   }
 }
 
-// ── 6자리 입력 위젯 ─────────────────────────────────────────────
+// 6자리 코드 입력 위젯 
 // 비어있으면 '0' (회색), 입력하면 해당 문자 (검정)로 교체
 class _SixDigitInput extends StatelessWidget {
   final TextEditingController controller;
@@ -218,7 +219,7 @@ class _SixDigitInput extends StatelessWidget {
             controller: controller,
             focusNode: focusNode,
             maxLength: 6,
-            keyboardType: TextInputType.text,
+            keyboardType: TextInputType.visiblePassword,
             textCapitalization: TextCapitalization.characters,
             inputFormatters: [
               FilteringTextInputFormatter.allow(RegExp(r'[a-zA-Z0-9]')),
@@ -273,3 +274,6 @@ class _SixDigitInput extends StatelessWidget {
     );
   }
 }
+// ══════════════════════════════════════════════
+// UI 끝
+// ══════════════════════════════════════════════
