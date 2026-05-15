@@ -15,37 +15,45 @@ class ApiService {
       };
 
   // ── 방 만들기 ──────────────────────────────────────────────
-  /// POST /rooms
-  /// Response: { "room_code": "ABC123", "room_id": 1, ... }
-  Future<Map<String, dynamic>> createRoom(String nickname) async {
+  /// POST /api/room/create
+  /// Response: { "status": 200, "room_code": "ABC123", "message": "..." }
+  Future<Map<String, dynamic>> createRoom(String roomName, String creatorName) async {
     final uri = Uri.parse('${ApiConstants.baseUrl}${ApiConstants.createRoom}');
     final response = await _client.post(
       uri,
       headers: _headers,
-      body: jsonEncode({'nickname': nickname}),
+      body: jsonEncode({
+        'room_name': roomName,
+        'creator_name': creatorName,
+      }),
     );
 
     if (response.statusCode == 200 || response.statusCode == 201) {
-      return jsonDecode(response.body) as Map<String, dynamic>;
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      if (data['status'] == 200) return data;
+      throw ApiException(data['status'] as int, data['message'] as String? ?? '알 수 없는 오류');
     }
     throw ApiException(response.statusCode, _parseError(response.body));
   }
 
   // ── 방 참가하기 ────────────────────────────────────────────
-  /// POST /rooms/{roomCode}/join
-  /// Response: { "room_code": "ABC123", "room_id": 1, ... }
+  /// POST /api/room/join
+  /// Response: { "status": 200, "room_name": "...", "message": "..." }
   Future<Map<String, dynamic>> joinRoom(String roomCode, String nickname) async {
-    final uri = Uri.parse(
-      '${ApiConstants.baseUrl}${ApiConstants.joinRoom(roomCode)}',
-    );
+    final uri = Uri.parse('${ApiConstants.baseUrl}${ApiConstants.joinRoom}');
     final response = await _client.post(
       uri,
       headers: _headers,
-      body: jsonEncode({'nickname': nickname}),
+      body: jsonEncode({
+        'room_code': roomCode,
+        'user_name': nickname,
+      }),
     );
 
     if (response.statusCode == 200 || response.statusCode == 201) {
-      return jsonDecode(response.body) as Map<String, dynamic>;
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      if (data['status'] == 200) return data;
+      throw ApiException(data['status'] as int, data['message'] as String? ?? '알 수 없는 오류');
     }
     throw ApiException(response.statusCode, _parseError(response.body));
   }

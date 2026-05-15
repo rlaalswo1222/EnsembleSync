@@ -16,6 +16,9 @@ class MainScreen extends StatelessWidget {
 
   static const _purple = Color(0xFF8B5CF6);
 
+  // ══════════════════════════════════════════════
+  // UI 시작
+  // ══════════════════════════════════════════════
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -103,4 +106,7 @@ class MainScreen extends StatelessWidget {
       ),
     );
   }
+  // ══════════════════════════════════════════════
+  // UI 끝
+  // ══════════════════════════════════════════════
 }

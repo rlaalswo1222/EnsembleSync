@@ -15,6 +15,7 @@ class _HomeScreenState extends State<HomeScreen>
   static const _purple = Color(0xFF8B5CF6);
 
   final _nicknameController = TextEditingController();
+  final _roomNameController = TextEditingController();
   bool _isLoading = false;
   bool get _hasNickname => _nicknameController.text.trim().isNotEmpty;
 
@@ -43,6 +44,7 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   void dispose() {
     _nicknameController.dispose();
+    _roomNameController.dispose();
     _shakeController.dispose();
     super.dispose();
   }
@@ -59,7 +61,10 @@ class _HomeScreenState extends State<HomeScreen>
     if (_isLoading) return;
     setState(() => _isLoading = true);
     try {
-      final result = await ApiService().createRoom(_nicknameController.text.trim());
+      final roomName = _roomNameController.text.trim().isEmpty
+          ? '${_nicknameController.text.trim()}의 방'
+          : _roomNameController.text.trim();
+      final result = await ApiService().createRoom(roomName, _nicknameController.text.trim());
       if (!mounted) return;
       Navigator.pushReplacement(
         context,
@@ -100,6 +105,9 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  // ══════════════════════════════════════════════
+  // UI 시작
+  // ══════════════════════════════════════════════
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -190,6 +198,45 @@ class _HomeScreenState extends State<HomeScreen>
                 ),
                 const SizedBox(height: 16),
 
+                // ── 방 이름 입력 ───────────────────────────────
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    '방 이름 (선택)',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.grey[700],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _roomNameController,
+                  maxLength: 30,
+                  textInputAction: TextInputAction.done,
+                  decoration: InputDecoration(
+                    hintText: '비워두면 "닉네임의 방"으로 설정됩니다',
+                    hintStyle: const TextStyle(color: Color(0xFFBDBDBD), fontSize: 12),
+                    counterText: '',
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 14),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: const BorderSide(color: _purple, width: 1.5),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+
                 // ── 방 만들기 버튼 ─────────────────────────────
                 SizedBox(
                   width: double.infinity,
@@ -263,4 +310,7 @@ class _HomeScreenState extends State<HomeScreen>
       ),
     );
   }
+  // ══════════════════════════════════════════════
+  // UI 끝
+  // ══════════════════════════════════════════════
 }

@@ -1,9 +1,8 @@
 class ApiConstants {
-  // TODO: 서버 배포 후 실제 URL로 변경
-  static const String baseUrl = 'http://localhost:8000';
+  static const String baseUrl = 'http://3.106.49.28:8000';
 
   // Rooms
-  static const String createRoom = '/rooms';
-  static String joinRoom(String roomCode) => '/rooms/$roomCode/join';
+  static const String createRoom = '/api/room/create';
+  static const String joinRoom = '/api/room/join';
   static String getRoom(String roomCode) => '/rooms/$roomCode';
 }
