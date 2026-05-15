@@ -1,3 +1,6 @@
+feat/room-create-api
+__pycache__/
+
 # Miscellaneous
 *.class
 *.log
@@ -43,3 +46,4 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+develop

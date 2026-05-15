@@ -55,6 +55,8 @@ CREATE TABLE score (
     room_id      UUID      NOT NULL REFERENCES room(id) ON DELETE CASCADE,
     uploaded_by  UUID      NOT NULL REFERENCES member(id),
     file_url     TEXT      NOT NULL,   -- S3/MinIO URL
+    file_type    VARCHAR(10) NOT NULL
+                 CHECK (file_type IN ('jpg', 'jpeg', 'png', 'pdf')),
     uploaded_at  TIMESTAMP NOT NULL DEFAULT now()
 );
 
@@ -161,7 +163,8 @@ CREATE TABLE separated_track (
     track_type  VARCHAR(20) NOT NULL
                 CHECK (track_type IN ('vocals', 'drums', 'bass', 'guitar')),  -- Demucs 4트랙
     file_url    TEXT        NOT NULL,   -- S3/MinIO 분리 트랙 URL (UC-12 6단계)
-    created_at  TIMESTAMP   NOT NULL DEFAULT now()
+    created_at  TIMESTAMP   NOT NULL DEFAULT now(),
+    UNIQUE (job_id, track_type)
 );
 
 -- ============================================================
