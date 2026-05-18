@@ -10,7 +10,9 @@ dependencies:
   flutter:
     sdk: flutter
   http: ^1.2.1
-  web_socket_channel: ^2.4.0  # S#2 WebSocket 협업용 (미리 추가)
+  web_socket_channel: ^2.4.0
+  image_picker: ^1.1.2
+  file_picker: ^8.1.2
 
 dev_dependencies:
   flutter_test:
