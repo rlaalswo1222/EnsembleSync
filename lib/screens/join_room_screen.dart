@@ -42,7 +42,7 @@ class _JoinRoomScreenState extends State<JoinRoomScreen> {
     setState(() => _isLoading = true);
     try {
       final enteredCode = _codeController.text.toUpperCase();
-      await ApiService().joinRoom(enteredCode, widget.nickname);
+      final result = await ApiService().joinRoom(enteredCode, widget.nickname);
       if (!mounted) return;
       Navigator.pushAndRemoveUntil(
         context,
@@ -50,7 +50,7 @@ class _JoinRoomScreenState extends State<JoinRoomScreen> {
           builder: (_) => MainScreen(
             nickname: widget.nickname,
             roomCode: enteredCode,
-            roomId: '',
+            roomId: result['room_id']?.toString() ?? '',
           ),
         ),
         (route) => false,
