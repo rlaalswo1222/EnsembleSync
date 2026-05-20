@@ -5,9 +5,9 @@ import room_create
 import room_enter
 import score
 import upload
-import audio
-import analysis
-import track
+import audio_upload
+import audio_analysis
+import track_download
 import os
 
 app = FastAPI()
@@ -29,6 +29,6 @@ app.include_router(room_create.router)
 app.include_router(room_enter.router)
 app.include_router(score.router)
 app.include_router(upload.router)
-app.include_router(audio.router)
-app.include_router(analysis.router)
-app.include_router(track.router)
+app.include_router(audio_upload.router)
+app.include_router(audio_analysis.router)
+app.include_router(track_download.router)
