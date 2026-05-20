@@ -37,3 +37,25 @@ async def get_score_snapshot(room_id: str):
         }
     except Exception as e:
         return {"status": 500, "message": f"스냅샷 조회 중 오류가 발생했습니다: {str(e)}"}
+
+
+@router.get("/api/score/{room_id}/latest")
+async def get_latest_score(room_id: str):
+    conn = None
+    try:
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute(
+            "SELECT file_url FROM score WHERE room_id = %s ORDER BY uploaded_at DESC LIMIT 1",
+            (room_id,)
+        )
+        row = cur.fetchone()
+        cur.close()
+        if row:
+            return {"status": 200, "file_url": row["file_url"]}
+        return {"status": 200, "file_url": None}
+    except Exception as e:
+        return {"status": 500, "message": str(e)}
+    finally:
+        if conn:
+            conn.close()
