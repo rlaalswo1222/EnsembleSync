@@ -43,7 +43,7 @@ async def join_room(request: RoomJoinRequest):
 
         conn.commit()
         cur.close()
-        return {"status": 200, "room_name": room['name'], "message": "입장에 성공했습니다."}
+        return {"status": 200, "room_name": room['name'], "room_id": str(room['id']), "message": "입장에 성공했습니다."}
 
     except Exception as e:
         if conn:
