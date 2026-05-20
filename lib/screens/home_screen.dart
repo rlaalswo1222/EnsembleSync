@@ -66,7 +66,8 @@ class _HomeScreenState extends State<HomeScreen>
           : _roomNameController.text.trim();
       final result = await ApiService().createRoom(roomName, _nicknameController.text.trim());
       if (!mounted) return;
-      Navigator.pushReplacement(
+      FocusScope.of(context).unfocus();
+      Navigator.pushAndRemoveUntil(
         context,
         MaterialPageRoute(
           builder: (_) => MainScreen(
@@ -75,13 +76,14 @@ class _HomeScreenState extends State<HomeScreen>
             roomId: result['room_id']?.toString() ?? '',
           ),
         ),
+        (route) => false,
       );
     } on ApiException catch (e) {
+      if (mounted) setState(() => _isLoading = false);
       _showError(e.userMessage);
     } catch (_) {
-      _showError('서버에 연결할 수 없습니다');
-    } finally {
       if (mounted) setState(() => _isLoading = false);
+      _showError('서버에 연결할 수 없습니다');
     }
   }
 

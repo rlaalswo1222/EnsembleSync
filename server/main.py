@@ -5,6 +5,7 @@ import room_create
 import room_enter
 import score_query
 import score_upload
+import websocket
 import os
 
 app = FastAPI()
@@ -17,7 +18,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 정적 파일 서빙 (업로드된 악보 파일 접근용)
 os.makedirs("uploads/scores", exist_ok=True)
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
@@ -25,3 +25,4 @@ app.include_router(room_create.router)
 app.include_router(room_enter.router)
 app.include_router(score_query.router)
 app.include_router(score_upload.router)
+app.include_router(websocket.router)

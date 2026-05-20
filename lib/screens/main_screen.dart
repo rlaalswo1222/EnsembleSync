@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 import '../services/websocket_service.dart';
+import '../services/api_service.dart';
 
 // ── 필기 데이터 모델 ──────────────────────────────────────────
 class Stroke {
@@ -76,14 +77,37 @@ class _MainScreenState extends State<MainScreen> {
   void initState() {
     super.initState();
     _ws = WebSocketService(
-      roomCode: widget.roomCode,
+      roomId: widget.roomId,
       nickname: widget.nickname,
     );
-    _ws.connect();
-    _listenWebSocket();
-
-    // 내 자신을 참가자 목록에 추가
     _participants.add({'name': widget.nickname});
+
+    // 입장 시 기존 악보 이미지 + 필기 스냅샷 로드 (REST API)
+    if (widget.roomId.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        try {
+          final fileUrl = await ApiService().getLatestScore(widget.roomId);
+          if (mounted && fileUrl != null) {
+            await _loadScoreFromUrl(fileUrl);
+          }
+        } catch (_) {}
+        try {
+          final strokes = await ApiService().getSnapshot(widget.roomId);
+          if (mounted && strokes.isNotEmpty) {
+            setState(() {
+              for (final s in strokes) {
+                _strokes.add(_strokeFromJson(s));
+              }
+            });
+          }
+        } catch (_) {}
+      });
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _ws.connect();
+      _listenWebSocket();
+    });
   }
 
   @override
@@ -97,19 +121,8 @@ class _MainScreenState extends State<MainScreen> {
     _ws.events.listen((event) {
       switch (event.type) {
 
-        // 입장 시 기존 필기 스냅샷 수신
-        case WsEventType.snapshot:
-          final strokes = event.data['strokes'] as List<dynamic>? ?? [];
-          setState(() {
-            _strokes.clear();
-            for (final s in strokes) {
-              _strokes.add(_strokeFromJson(s as Map<String, dynamic>));
-            }
-          });
-          break;
-
-        // 다른 참가자 필기 수신
-        case WsEventType.draw:
+        // 다른 참가자 필기 수신 (서버 브로드캐스트)
+        case WsEventType.syncDraw:
           setState(() {
             _strokes.add(_strokeFromJson(event.data));
           });
@@ -117,7 +130,7 @@ class _MainScreenState extends State<MainScreen> {
 
         // 지우기
         case WsEventType.erase:
-          final id = event.data['stroke_id'] as String?;
+          final id = event.data['annotation_id'] as String?;
           if (id != null) {
             setState(() => _strokes.removeWhere((s) => s.id == id));
           }
@@ -144,27 +157,70 @@ class _MainScreenState extends State<MainScreen> {
           }
           break;
 
+        // 입장 시 기존 참여자 목록 수신
+        case WsEventType.userList:
+          final users = event.data['users'] as List<dynamic>? ?? [];
+          setState(() {
+            for (final u in users) {
+              final name = u as String?;
+              if (name != null && !_participants.any((p) => p['name'] == name)) {
+                _participants.add({'name': name});
+              }
+            }
+          });
+          break;
+
+        // 악보 업로드 알림
+        case WsEventType.scoreUploaded:
+          final fileUrl = event.data['file_url'] as String?;
+          if (fileUrl != null) _loadScoreFromUrl(fileUrl);
+          break;
+
         default:
           break;
       }
     });
   }
 
+  Future<void> _loadScoreFromUrl(String fileUrl) async {
+    try {
+      final bytes = await ApiService().downloadScore(fileUrl);
+      if (mounted) setState(() => _scoreImageBytes = bytes);
+    } catch (_) {}
+  }
+
+  Future<void> _uploadScore(Uint8List bytes, String filename) async {
+    try {
+      final fileUrl = await ApiService().uploadScore(widget.roomId, bytes, filename);
+      _ws.sendScoreUploaded(fileUrl);
+    } catch (e) {
+      debugPrint('uploadScore error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('오류: $e')),
+        );
+      }
+    }
+  }
+
   Stroke _strokeFromJson(Map<String, dynamic> json) {
-    final pts = (json['points'] as List<dynamic>).map((p) {
+    // 서버 브로드캐스트는 payload 안에 데이터가 있음
+    final p = json['payload'] as Map<String, dynamic>? ?? json;
+    final isEraser = (p['tool_type'] as String?) == 'eraser';
+    final pts = (p['stroke_data'] as List<dynamic>).map((pt) {
       return Offset(
-        (p['x'] as num).toDouble(),
-        (p['y'] as num).toDouble(),
+        (pt['x'] as num).toDouble(),
+        (pt['y'] as num).toDouble(),
       );
     }).toList();
     return Stroke(
-      id: json['stroke_id'] as String? ?? UniqueKey().toString(),
+      id: p['annotation_id'] as String? ?? UniqueKey().toString(),
       points: pts,
       color: Color(int.parse(
-          (json['color'] as String? ?? 'FF8B5CF6').replaceFirst('#', ''),
+          (p['color'] as String? ?? '#8B5CF6').replaceFirst('#', ''),
           radix: 16) | 0xFF000000),
-      width: (json['width'] as num?)?.toDouble() ?? 3.0,
-      isEraser: json['is_eraser'] as bool? ?? false,
+      width: isEraser ? 20.0 : 3.0,
+      isEraser: isEraser,
     );
   }
 
@@ -200,6 +256,7 @@ class _MainScreenState extends State<MainScreen> {
                 if (img != null) {
                   final bytes = await img.readAsBytes();
                   setState(() => _scoreImageBytes = bytes);
+                  await _uploadScore(bytes, img.name);
                 }
               },
             ),
@@ -213,6 +270,7 @@ class _MainScreenState extends State<MainScreen> {
                 if (img != null) {
                   final bytes = await img.readAsBytes();
                   setState(() => _scoreImageBytes = bytes);
+                  await _uploadScore(bytes, img.name);
                 }
               },
             ),
@@ -226,8 +284,10 @@ class _MainScreenState extends State<MainScreen> {
                   allowedExtensions: ['pdf'],
                 );
                 if (result != null && result.files.first.bytes != null) {
-                  setState(() =>
-                      _scoreImageBytes = result.files.first.bytes);
+                  final bytes = result.files.first.bytes!;
+                  final filename = result.files.first.name;
+                  setState(() => _scoreImageBytes = bytes);
+                  await _uploadScore(bytes, filename);
                 }
               },
             ),
@@ -342,15 +402,15 @@ class _MainScreenState extends State<MainScreen> {
       _currentStroke = null;
     });
 
-    // WebSocket으로 전송
+    // WebSocket으로 전송 (명세서 payload 형식)
     _ws.sendDraw({
-      'stroke_id': stroke.id,
-      'points': stroke.points
-          .map((p) => {'x': p.dx, 'y': p.dy})
-          .toList(),
-      'color': '#${stroke.color.value.toRadixString(16).padLeft(8, '0').substring(2)}',
-      'width': stroke.width,
-      'is_eraser': stroke.isEraser,
+      'annotation_id': stroke.id,
+      'member_id': widget.nickname,
+      'tool_type': stroke.isEraser ? 'eraser' : 'pen',
+      'color': '#${stroke.color.toARGB32().toRadixString(16).padLeft(8, '0').substring(2)}',
+      'stroke_data': stroke.points.map((p) => {'x': p.dx, 'y': p.dy}).toList(),
+      'is_deleted': false,
+      'created_at': DateTime.now().toIso8601String(),
     });
   }
 
@@ -363,6 +423,7 @@ class _MainScreenState extends State<MainScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFF3A3A3A),
+      resizeToAvoidBottomInset: false,
       body: SafeArea(
         child: Center(
           child: Container(
@@ -769,9 +830,11 @@ class _DrawingPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    canvas.saveLayer(Offset.zero & size, Paint());
     for (final stroke in [...strokes, if (currentStroke != null) currentStroke!]) {
       _drawStroke(canvas, size, stroke);
     }
+    canvas.restore();
   }
 
   void _drawStroke(Canvas canvas, Size size, Stroke stroke) {
