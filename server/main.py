@@ -3,8 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import room_create
 import room_enter
-import score
-import upload
+import score_query
+import score_upload
 import os
 
 app = FastAPI()
@@ -23,5 +23,5 @@ app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 app.include_router(room_create.router)
 app.include_router(room_enter.router)
-app.include_router(score.router)
-app.include_router(upload.router)
+app.include_router(score_query.router)
+app.include_router(score_upload.router)
