@@ -137,7 +137,6 @@ def separate_audio_task(self, file_path: str, room_id: str, job_id: str):
 
         return {"status": "success", "job_id": job_id, "message": "음원 분리 완벽 종료!"}
 
-    # ★★★ 복구된 부분: 메인 try 블록에 대한 예외 처리 및 파일 청소 ★★★
     except Exception as e:
         # 실패 시 에러 메시지 반환
         return {"status": "error", "error_message": str(e)}
