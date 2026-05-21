@@ -3,15 +3,15 @@ import 'dart:convert';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import '../services/api_constants.dart';
 
-// WebSocket으로 주고받는 이벤트 타입
 enum WsEventType {
-  syncDraw,   // 다른 참여자 필기 수신 (서버 브로드캐스트: sync_draw)
-  erase,      // 지우기
-  clear,      // 전체 삭제
-  userJoined, // 참가자 입장
-  userLeft,   // 참가자 퇴장
-  userList,      // 입장 시 현재 참여자 목록 수신
-  scoreUploaded, // 악보 업로드 알림
+  syncDraw,
+  erase,
+  clear,
+  userJoined,
+  userLeft,
+  userList,
+  scoreUploaded,
+  trackSeparated, // 트랙 분리 완료 알림
   unknown,
 }
 
@@ -37,7 +37,6 @@ class WebSocketService {
 
   WebSocketService({required this.roomId, required this.nickname});
 
-  // ── 연결 ────────────────────────────────────────────────────
   void connect() {
     _controller ??= StreamController<WsEvent>.broadcast();
     _doConnect();
@@ -51,7 +50,6 @@ class WebSocketService {
       ).replace(queryParameters: {'user_name': nickname});
       _channel = WebSocketChannel.connect(uri);
       _reconnectAttempts = 0;
-
       _channel!.stream.listen(
         _onMessage,
         onError: (_) => _scheduleReconnect(),
@@ -62,7 +60,6 @@ class WebSocketService {
     }
   }
 
-  // ── 메시지 수신 ──────────────────────────────────────────────
   void _onMessage(dynamic raw) {
     try {
       final json = jsonDecode(raw as String) as Map<String, dynamic>;
@@ -73,18 +70,18 @@ class WebSocketService {
 
   WsEventType _parseType(String t) {
     switch (t) {
-      case 'sync_draw':  return WsEventType.syncDraw;
-      case 'erase':      return WsEventType.erase;
-      case 'clear':      return WsEventType.clear;
-      case 'user_joined': return WsEventType.userJoined;
-      case 'user_left':  return WsEventType.userLeft;
-      case 'user_list':      return WsEventType.userList;
-      case 'score_uploaded': return WsEventType.scoreUploaded;
-      default:               return WsEventType.unknown;
+      case 'sync_draw':       return WsEventType.syncDraw;
+      case 'erase':           return WsEventType.erase;
+      case 'clear':           return WsEventType.clear;
+      case 'user_joined':     return WsEventType.userJoined;
+      case 'user_left':       return WsEventType.userLeft;
+      case 'user_list':       return WsEventType.userList;
+      case 'score_uploaded':  return WsEventType.scoreUploaded;
+      case 'track_separated': return WsEventType.trackSeparated;
+      default:                return WsEventType.unknown;
     }
   }
 
-  // ── 메시지 송신 ──────────────────────────────────────────────
   void send(Map<String, dynamic> data) {
     try {
       _channel?.sink.add(jsonEncode(data));
@@ -107,7 +104,6 @@ class WebSocketService {
     send({'type': 'score_uploaded', 'file_url': fileUrl});
   }
 
-  // ── 재연결 처리 (3초 이내) ───────────────────────────────────
   void _scheduleReconnect() {
     if (_isDisposed) return;
     if (_reconnectAttempts >= _maxReconnectAttempts) return;
@@ -116,7 +112,6 @@ class WebSocketService {
     _reconnectTimer = Timer(const Duration(seconds: 3), _doConnect);
   }
 
-  // ── 해제 ────────────────────────────────────────────────────
   void dispose() {
     _isDisposed = true;
     _reconnectTimer?.cancel();
