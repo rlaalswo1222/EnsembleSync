@@ -13,6 +13,7 @@ dependencies:
   web_socket_channel: ^2.4.0
   image_picker: ^1.1.2
   file_picker: ^8.1.2
+  url_launcher: ^6.3.0     # 트랙 재생/다운로드
 
 dev_dependencies:
   flutter_test:
