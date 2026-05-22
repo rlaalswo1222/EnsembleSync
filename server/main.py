@@ -3,8 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import room_create
 import room_enter
-import score
-import upload
+import score_query
+import score_upload
 import audio_upload
 import audio_analysis
 import track_download
