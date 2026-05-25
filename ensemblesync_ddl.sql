@@ -127,7 +127,10 @@ CREATE TABLE bpm_result (
     bpm_data            JSONB NOT NULL,
     base_bpm            FLOAT,
     -- deviation_sections: [{start: float, end: float, bpm: float}, ...] (FR-05)
-    deviation_sections  JSONB
+   deviation_sections  JSONB,
+    avg_bpm             FLOAT,
+    max_bpm             FLOAT,
+    min_bpm             FLOAT
 );
 
 -- ============================================================

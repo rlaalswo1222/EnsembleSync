@@ -10,6 +10,7 @@ async def get_bpm_result(job_id: str):
     BPM 분석 결과 반환 API
     - UC-07, FR-04, FR-05
     - BPM 수치, 곡선 데이터, 변화 구간 반환
+    - avg_bpm, max_bpm, min_bpm 추가 (S#4)
     """
     conn = None
     try:
@@ -34,7 +35,11 @@ async def get_bpm_result(job_id: str):
 
         # 2. bpm_result 조회
         cur.execute(
-            "SELECT id, job_id, bpm_data, base_bpm, deviation_sections FROM bpm_result WHERE job_id = %s",
+            """
+            SELECT id, job_id, bpm_data, base_bpm, deviation_sections,
+                   avg_bpm, max_bpm, min_bpm
+            FROM bpm_result WHERE job_id = %s
+            """,
             (job_id,)
         )
         result = cur.fetchone()
@@ -46,9 +51,12 @@ async def get_bpm_result(job_id: str):
         return {
             "status": 200,
             "job_id": job_id,
-            "bpm_data": result['bpm_data'],          # 구간별 BPM 곡선 [{time, bpm}]
-            "base_bpm": result['base_bpm'],           # 기준 BPM 수치
-            "deviation_sections": result['deviation_sections'],  # 이탈 구간 [{start, end, bpm}]
+            "base_bpm": result['base_bpm'],                      # 전체 BPM
+            "avg_bpm": result['avg_bpm'],                        # 평균 BPM
+            "max_bpm": result['max_bpm'],                        # 최고 BPM
+            "min_bpm": result['min_bpm'],                        # 최저 BPM
+            "bpm_data": result['bpm_data'],                      # 실시간 BPM 곡선 [{time, bpm}]
+            "deviation_sections": result['deviation_sections'],  # 템포 변화 구간 [{start, end, bpm}]
             "message": "BPM 분석 결과를 반환합니다."
         }
     except Exception as e:
