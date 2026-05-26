@@ -59,15 +59,15 @@ async def upload_audio(
             shutil.copyfileobj(file.file, buffer)
 
         # 5. EC2 URL 생성
-        file_url = f"http://3.25.160.93:8000/uploads/audio/{room_id}/{audio_id}.{ext}"
+        file_url = f"http://3.106.49.28:8000/uploads/audio/{room_id}/{audio_id}.{ext}"
 
         # 6. DB에 audio_file 테이블 INSERT
         cur.execute(
             """
-            INSERT INTO audio_file (id, room_id, uploaded_by, file_type, file_url, purpose, uploaded_at)
-            VALUES (%s, %s, %s, %s, %s, %s, now())
+            INSERT INTO audio_file (id, room_id, file_type, file_url, purpose, uploaded_at)
+            VALUES (%s, %s, %s, %s, %s, now())
             """,
-            (audio_id, room_id, room_id, ext, file_url, purpose)
+            (audio_id, room_id, ext, file_url, purpose)
         )
         conn.commit()
         cur.close()
