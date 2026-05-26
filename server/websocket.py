@@ -1,17 +1,42 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 import json
 import redis
+import redis.asyncio as aioredis
+import asyncio
 
 router = APIRouter()
 
 # 방별 참여자 WebSocket { room_id: { user_name: WebSocket } }
 _rooms: dict = {}
+_redis_tasks: dict = {}  # room_id -> asyncio.Task (Redis pub/sub 리스너)
 
 try:
     _redis = redis.Redis(host='localhost', port=6379, decode_responses=True)
     _redis.ping()
 except Exception:
     _redis = None
+
+
+async def _redis_listener(room_id: str):
+    r = aioredis.Redis(host='localhost', port=6379, decode_responses=True)
+    pubsub = r.pubsub()
+    await pubsub.subscribe(f"room_{room_id}")
+    try:
+        async for message in pubsub.listen():
+            if not _rooms.get(room_id):
+                break
+            if message['type'] == 'message':
+                try:
+                    data = json.loads(message['data'])
+                    await _broadcast(room_id, data)
+                except Exception:
+                    pass
+    except asyncio.CancelledError:
+        pass
+    finally:
+        await pubsub.unsubscribe(f"room_{room_id}")
+        await r.aclose()
+        _redis_tasks.pop(room_id, None)
 
 
 @router.websocket("/api/ws/room/{room_id}")
@@ -23,6 +48,9 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, user_name: str 
 
     existing_users = list(_rooms[room_id].keys())
     _rooms[room_id][user_name] = websocket
+
+    if room_id not in _redis_tasks:
+        _redis_tasks[room_id] = asyncio.create_task(_redis_listener(room_id))
 
     # 신규 유저에게 현재 참여자 목록 전송
     if existing_users:
@@ -79,6 +107,9 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, user_name: str 
         _rooms[room_id].pop(user_name, None)
         if not _rooms[room_id]:
             del _rooms[room_id]
+            task = _redis_tasks.pop(room_id, None)
+            if task:
+                task.cancel()
         await _broadcast(room_id, {"type": "user_left", "user_name": user_name})
 
 

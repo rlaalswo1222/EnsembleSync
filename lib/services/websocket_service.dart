@@ -11,7 +11,8 @@ enum WsEventType {
   userLeft,
   userList,
   scoreUploaded,
-  trackSeparated, // 트랙 분리 완료 알림
+  trackSeparated,
+  separationProgress,
   unknown,
 }
 
@@ -23,7 +24,7 @@ class WsEvent {
 
 class WebSocketService {
   WebSocketChannel? _channel;
-  StreamController<WsEvent>? _controller;
+  final StreamController<WsEvent> _controller = StreamController<WsEvent>.broadcast();
   Timer? _reconnectTimer;
 
   final String roomId;
@@ -33,12 +34,11 @@ class WebSocketService {
   int _reconnectAttempts = 0;
   static const _maxReconnectAttempts = 5;
 
-  Stream<WsEvent> get events => _controller!.stream;
+  Stream<WsEvent> get events => _controller.stream;
 
   WebSocketService({required this.roomId, required this.nickname});
 
   void connect() {
-    _controller ??= StreamController<WsEvent>.broadcast();
     _doConnect();
   }
 
@@ -64,7 +64,7 @@ class WebSocketService {
     try {
       final json = jsonDecode(raw as String) as Map<String, dynamic>;
       final type = _parseType(json['type'] as String? ?? '');
-      _controller?.add(WsEvent(type, json));
+      _controller.add(WsEvent(type, json));
     } catch (_) {}
   }
 
@@ -77,8 +77,9 @@ class WebSocketService {
       case 'user_left':       return WsEventType.userLeft;
       case 'user_list':       return WsEventType.userList;
       case 'score_uploaded':  return WsEventType.scoreUploaded;
-      case 'track_separated': return WsEventType.trackSeparated;
-      default:                return WsEventType.unknown;
+      case 'track_separated':     return WsEventType.trackSeparated;
+      case 'separation_progress': return WsEventType.separationProgress;
+      default:                    return WsEventType.unknown;
     }
   }
 
@@ -116,6 +117,6 @@ class WebSocketService {
     _isDisposed = true;
     _reconnectTimer?.cancel();
     _channel?.sink.close();
-    _controller?.close();
+    _controller.close();
   }
 }

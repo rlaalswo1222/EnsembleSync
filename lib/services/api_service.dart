@@ -22,7 +22,7 @@ class ApiService {
       uri,
       headers: _headers,
       body: jsonEncode({'room_name': roomName, 'creator_name': creatorName}),
-    );
+    ).timeout(const Duration(seconds: 10));
     if (response.statusCode == 200 || response.statusCode == 201) {
       final data = jsonDecode(response.body) as Map<String, dynamic>;
       if (data['status'] == 200) return data;
@@ -38,7 +38,7 @@ class ApiService {
       uri,
       headers: _headers,
       body: jsonEncode({'room_code': roomCode, 'user_name': nickname}),
-    );
+    ).timeout(const Duration(seconds: 10));
     if (response.statusCode == 200 || response.statusCode == 201) {
       final data = jsonDecode(response.body) as Map<String, dynamic>;
       if (data['status'] == 200) return data;
@@ -72,7 +72,7 @@ class ApiService {
   // ── 최신 악보 URL ──────────────────────────────────────────
   Future<String?> getLatestScore(String roomId) async {
     final uri = Uri.parse('${ApiConstants.baseUrl}/api/score/$roomId/latest');
-    final response = await _client.get(uri, headers: _headers);
+    final response = await _client.get(uri, headers: _headers).timeout(const Duration(seconds: 10));
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body) as Map<String, dynamic>;
       if (data['status'] == 200) return data['file_url'] as String?;
@@ -83,7 +83,7 @@ class ApiService {
   // ── 악보 스냅샷 (기존 필기 전체) ──────────────────────────
   Future<List<Map<String, dynamic>>> getSnapshot(String roomId) async {
     final uri = Uri.parse('${ApiConstants.baseUrl}/api/score/$roomId/snapshot');
-    final response = await _client.get(uri, headers: _headers);
+    final response = await _client.get(uri, headers: _headers).timeout(const Duration(seconds: 10));
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body) as Map<String, dynamic>;
       if (data['status'] == 200) {
@@ -96,7 +96,6 @@ class ApiService {
   // ── 음원 파일 업로드 ───────────────────────────────────────
   /// POST /api/audio/{room_id}/upload
   /// purpose: 'bpm' | 'pitch' | 'track'
-  /// Response: { "status": 200, "audio_file_id": "...", "file_url": "...", "purpose": "..." }
   Future<Map<String, dynamic>> uploadAudio({
     required String roomId,
     required Uint8List bytes,
@@ -116,7 +115,6 @@ class ApiService {
 
   // ── 트랙 분리 요청 ─────────────────────────────────────────
   /// POST /api/track/separate
-  /// Response: { "status": 202, "message": "..." }
   Future<Map<String, dynamic>> requestTrackSeparation({
     required String roomId,
     required Uint8List bytes,
@@ -133,8 +131,24 @@ class ApiService {
     throw ApiException(data['status'] as int, data['message'] as String? ?? '트랙 분리 요청 실패');
   }
 
+  // ── BPM 분석 결과 조회 ─────────────────────────────────────
+  /// GET /api/bpm/{job_id}/result
+  /// Response: { "status": 200, "job_id": "...", "base_bpm": 120.0,
+  ///   "avg_bpm": 119.0, "max_bpm": 122.0, "min_bpm": 115.0,
+  ///   "bpm_data": [{"time": 0.0, "bpm": 120.0}, ...],
+  ///   "deviation_sections": [{"start": 0.1, "end": 0.2, "bpm": 115.0}, ...] }
+  Future<Map<String, dynamic>> getBpmResult(String jobId) async {
+    final uri = Uri.parse('${ApiConstants.baseUrl}/api/bpm/$jobId/result');
+    final response = await _client.get(uri, headers: _headers).timeout(const Duration(seconds: 10));
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      if (data['status'] == 200) return data;
+      throw ApiException(data['status'] as int, data['message'] as String? ?? 'BPM 결과 조회 실패');
+    }
+    throw ApiException(response.statusCode, _parseError(response.body));
+  }
+
   // ── 트랙 다운로드 URL 반환 ─────────────────────────────────
-  /// GET /api/track/{job_id}/download/{track_type}
   String getTrackDownloadUrl(String jobId, String trackType) {
     return '${ApiConstants.baseUrl}/api/track/$jobId/download/$trackType';
   }
