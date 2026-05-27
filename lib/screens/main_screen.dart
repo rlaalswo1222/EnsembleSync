@@ -4,6 +4,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 import '../services/websocket_service.dart';
 import '../services/api_service.dart';
+import '../models/bpm_result.dart';
 import 'analysis_tab.dart';
 import 'result_tab.dart';
 
@@ -66,6 +67,10 @@ class _MainScreenState extends State<MainScreen> {
   // ── 트랙 분리 결과 ───────────────────────────────────────────
   List<TrackResult> _tracks = [];
   String? _audioFilename;
+
+  // ── BPM 분석 결과 ────────────────────────────────────────────
+  String? _bpmJobId;
+  BpmResult? _bpmResult;
 
   static const _avatarColors = [
     Color(0xFF8B5CF6),
@@ -149,7 +154,7 @@ class _MainScreenState extends State<MainScreen> {
           if (fileUrl != null) _loadScoreFromUrl(fileUrl);
           break;
 
-        // ── 트랙 분리 완료 알림 ──────────────────────────────
+        // ── 트랙 분리 완료 ───────────────────────────────────
         case WsEventType.trackSeparated:
           final payload = event.data['payload'] as Map<String, dynamic>? ?? {};
           final tracksJson = payload['tracks'] as Map<String, dynamic>? ?? {};
@@ -166,10 +171,33 @@ class _MainScreenState extends State<MainScreen> {
           if (mounted) setState(() => _tracks = results);
           break;
 
+        // ── BPM 분석 완료 WebSocket 알림 ────────────────────
+        // 서버가 bpm_complete 이벤트로 job_id 전달 시 자동 결과 로드
+        case WsEventType.unknown:
+          final type = event.data['type'] as String?;
+          if (type == 'bpm_complete') {
+            final jobId = event.data['job_id'] as String?;
+            if (jobId != null && mounted) {
+              setState(() => _bpmJobId = jobId);
+              _loadBpmResult(jobId);
+            }
+          }
+          break;
+
         default:
           break;
       }
     });
+  }
+
+  // ── BPM 결과 로드 ────────────────────────────────────────────
+  Future<void> _loadBpmResult(String jobId) async {
+    try {
+      final data = await ApiService().getBpmResult(jobId);
+      if (mounted) {
+        setState(() => _bpmResult = BpmResult.fromJson(data));
+      }
+    } catch (_) {}
   }
 
   Future<void> _loadScoreFromUrl(String fileUrl) async {
@@ -392,7 +420,6 @@ class _MainScreenState extends State<MainScreen> {
             child: Column(
               children: [
                 _buildHeader(),
-                // 악보 탭일 때만 도구 바 표시
                 if (_tabIndex == 0) _buildToolBar(),
                 Expanded(child: _buildTabBody()),
                 _buildBottomBar(),
@@ -511,8 +538,17 @@ class _MainScreenState extends State<MainScreen> {
           roomCode: widget.roomCode,
           ws: _ws,
           onGoToResult: () => setState(() => _tabIndex = 2),
+          onBpmJobId: (jobId) {
+            setState(() => _bpmJobId = jobId);
+            _loadBpmResult(jobId);
+          },
         ),
-        ResultTab(tracks: _tracks, audioFilename: _audioFilename),
+        ResultTab(
+          tracks: _tracks,
+          audioFilename: _audioFilename,
+          bpmJobId: _bpmJobId,
+          bpmResult: _bpmResult,
+        ),
       ],
     );
   }
