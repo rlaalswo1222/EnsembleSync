@@ -50,7 +50,7 @@ async def create_room(request: RoomCreateRequest):
 
         conn.commit()
         cur.close()
-        return {"status": 200, "room_code": room_code, "message": "방이 성공적으로 생성되었습니다."}
+        return {"status": 200, "room_code": room_code, "room_id": str(room_id), "message": "방이 성공적으로 생성되었습니다."}
 
     except Exception as e:
         if conn:
