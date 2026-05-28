@@ -30,12 +30,12 @@ def separate_audio_task(self, file_path: str, room_id: str, job_id: str):
         # ==========================================
         if original.suffix.lower() in ['.mp3', '.m4a', '.aac', '.ogg', '.flac']:
             wav_path = os.path.join(tmp_dir, original.stem + '.wav')
-            
+
             convert = subprocess.run(
                 ['ffmpeg', '-y', '-i', str(original), wav_path],
                 capture_output=True, text=True
             )
-            
+
             if convert.returncode != 0:
                 input_path = str(original)
             else:
@@ -53,10 +53,10 @@ def separate_audio_task(self, file_path: str, room_id: str, job_id: str):
             "--out", output_base_dir,
             input_path
         ]
-        
+
         # Popen을 사용하여 실시간으로 로그(출력)를 한 줄씩 읽어옵니다.
         process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-        
+
         # Demucs의 터미널 출력을 한 줄씩 파싱하여 진행률(%)을 뽑아냅니다.
         for line in process.stdout:
             if '%' in line:
@@ -64,7 +64,7 @@ def separate_audio_task(self, file_path: str, room_id: str, job_id: str):
                 match = re.search(r'(\d+)%', line)
                 if match:
                     percent = int(match.group(1))
-                    
+
                     # Redis로 해당 방(room) 채널에 진행률 알림 쏘기
                     progress_msg = {
                         "type": "separation_progress",
@@ -73,7 +73,7 @@ def separate_audio_task(self, file_path: str, room_id: str, job_id: str):
                         "progress": percent
                     }
                     redis_client.publish(f"room_{room_id}", json.dumps(progress_msg))
-                    
+
         # 프로세스가 완전히 끝날 때까지 대기
         process.wait()
 
@@ -152,7 +152,7 @@ def separate_audio_task(self, file_path: str, room_id: str, job_id: str):
         except Exception:
             pass
         return {"status": "error", "error_message": str(e)}
-        
+
     finally:
         # 작업이 끝나면 성공/실패 여부와 상관없이 무조건 임시 폴더와 원본 파일을 깔끔하게 삭제합니다.
         if tmp_dir and os.path.exists(tmp_dir):
