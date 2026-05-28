@@ -9,6 +9,7 @@ import track_download
 import score_query
 import score_upload
 import websocket
+import bpm_result
 import os
 
 app = FastAPI()
@@ -24,16 +25,15 @@ app.add_middleware(
 # 정적 파일 서빙 (업로드된 파일 접근용)
 os.makedirs("uploads/scores", exist_ok=True)
 os.makedirs("uploads/audio", exist_ok=True)
-os.makedirs("uploads/scores", exist_ok=True)
+os.makedirs("uploads/separated", exist_ok=True)
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 app.include_router(room_create.router)
 app.include_router(room_enter.router)
-app.include_router(score.router)
-app.include_router(upload.router)
 app.include_router(audio_upload.router)
 app.include_router(audio_analysis.router)
 app.include_router(track_download.router)
 app.include_router(score_query.router)
 app.include_router(score_upload.router)
 app.include_router(websocket.router)
+app.include_router(bpm_result.router)

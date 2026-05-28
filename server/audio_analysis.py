@@ -44,10 +44,19 @@ async def start_analysis(room_id: str, audio_file_id: str, job_type: str):
         conn.commit()
 
         # 3. Celery 비동기 작업 등록
-        task = celery_app.send_task(
-            f"tasks.{job_type}_analysis",
-            args=[job_id, audio_file_id]
-        )
+        if job_type == "separation":
+            cur.execute("SELECT file_type FROM audio_file WHERE id = %s", (audio_file_id,))
+            audio_row = cur.fetchone()
+            file_path = f"uploads/audio/{room_id}/{audio_file_id}.{audio_row['file_type']}"
+            task = celery_app.send_task(
+                "separate_audio_task",
+                args=[file_path, room_id, job_id]
+            )
+        else:
+            task = celery_app.send_task(
+                f"tasks.{job_type}_analysis",
+                args=[job_id, audio_file_id]
+            )
 
         # 4. celery_task_id 업데이트
         cur.execute(
