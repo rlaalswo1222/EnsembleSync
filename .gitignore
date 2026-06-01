@@ -1,6 +1,10 @@
 feat/room-create-api
 __pycache__/
 
+# 민감정보
+server/.env
+*.pem
+
 # Miscellaneous
 *.class
 *.log

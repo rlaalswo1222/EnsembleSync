@@ -290,6 +290,7 @@ class _MainScreenState extends State<MainScreen> {
                 final result = await FilePicker.platform.pickFiles(
                   type: FileType.custom,
                   allowedExtensions: ['pdf'],
+                  withData: true,
                 );
                 if (result != null && result.files.first.bytes != null) {
                   final bytes = result.files.first.bytes!;

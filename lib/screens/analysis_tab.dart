@@ -84,6 +84,7 @@ class _AnalysisTabState extends State<AnalysisTab> {
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['mp3', 'wav', 'flac', 'm4a'],
+      withData: true,
     );
     if (result != null && result.files.first.bytes != null) {
       final bytes = result.files.first.bytes!;

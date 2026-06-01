@@ -39,12 +39,19 @@ class _ResultTabState extends State<ResultTab> {
   BpmResult? _bpmResult;
   bool _isLoading = false;
 
-  // ── 오디오 재생 ──────────────────────────────────────────────
+  // ── BPM 오디오 재생 ──────────────────────────────────────────
   final _player = AudioPlayer();
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
   bool _isPlaying = false;
   bool _sourceLoaded = false;
+
+  // ── 트랙 오디오 재생 ─────────────────────────────────────────
+  final _trackPlayer = AudioPlayer();
+  Duration _trackPosition = Duration.zero;
+  Duration _trackDuration = Duration.zero;
+  bool _trackIsPlaying = false;
+  String? _playingTrackUrl;
 
   double get _playPosition => _duration.inMilliseconds > 0
       ? _position.inMilliseconds / _duration.inMilliseconds
@@ -69,6 +76,19 @@ class _ResultTabState extends State<ResultTab> {
     _player.onPlayerComplete.listen((_) {
       if (mounted) setState(() { _position = Duration.zero; _sourceLoaded = false; });
     });
+
+    _trackPlayer.onPositionChanged.listen((p) {
+      if (mounted) setState(() => _trackPosition = p);
+    });
+    _trackPlayer.onDurationChanged.listen((d) {
+      if (mounted) setState(() => _trackDuration = d);
+    });
+    _trackPlayer.onPlayerStateChanged.listen((s) {
+      if (mounted) setState(() => _trackIsPlaying = s == PlayerState.playing);
+    });
+    _trackPlayer.onPlayerComplete.listen((_) {
+      if (mounted) setState(() { _trackPosition = Duration.zero; _trackIsPlaying = false; });
+    });
   }
 
   @override
@@ -86,6 +106,7 @@ class _ResultTabState extends State<ResultTab> {
   @override
   void dispose() {
     _player.dispose();
+    _trackPlayer.dispose();
     super.dispose();
   }
 
@@ -99,7 +120,30 @@ class _ResultTabState extends State<ResultTab> {
     }
   }
 
-  // ── 재생/정지 토글 ────────────────────────────────────────────
+  // ── 트랙 재생/정지 ────────────────────────────────────────────
+  Future<void> _playTrackAudio(String url) async {
+    if (_playingTrackUrl == url) {
+      if (_trackIsPlaying) {
+        await _trackPlayer.pause();
+      } else {
+        await _trackPlayer.resume();
+      }
+    } else {
+      await _trackPlayer.stop();
+      setState(() {
+        _playingTrackUrl = url;
+        _trackPosition = Duration.zero;
+        _trackDuration = Duration.zero;
+      });
+      await _trackPlayer.play(UrlSource(url));
+    }
+  }
+
+  double get _trackPlayPosition => _trackDuration.inMilliseconds > 0
+      ? _trackPosition.inMilliseconds / _trackDuration.inMilliseconds
+      : 0.0;
+
+  // ── BPM 재생/정지 토글 ────────────────────────────────────────
   Future<void> _togglePlay() async {
     if (widget.audioBytes == null) return;
     if (_isPlaying) {
@@ -360,40 +404,83 @@ class _ResultTabState extends State<ResultTab> {
   }
 
   Widget _buildTrackCard(TrackResult track) {
+    final isActive = _playingTrackUrl == track.url;
+    final isPlaying = isActive && _trackIsPlaying;
+
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
         color: const Color(0xFFF9F7FF),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFE5E7EB)),
+        border: Border.all(
+          color: isActive ? _purple.withValues(alpha: 0.4) : const Color(0xFFE5E7EB),
+        ),
       ),
-      child: Row(
+      child: Column(
         children: [
-          Container(
-            width: 36, height: 36,
-            decoration: const BoxDecoration(
-              color: Color(0xFFEDE9FE), shape: BoxShape.circle),
-            child: Icon(track.icon, color: _purple, size: 18),
+          Row(
+            children: [
+              Container(
+                width: 36, height: 36,
+                decoration: const BoxDecoration(
+                  color: Color(0xFFEDE9FE), shape: BoxShape.circle),
+                child: Icon(track.icon, color: _purple, size: 18),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(track.label,
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+              ),
+              GestureDetector(
+                onTap: () => _playTrackAudio(track.url),
+                child: Container(
+                  width: 36, height: 36,
+                  decoration: const BoxDecoration(color: _purple, shape: BoxShape.circle),
+                  child: Icon(
+                    isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                    color: Colors.white, size: 20,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              GestureDetector(
+                onTap: () => _launchUrl(context, track.url),
+                child: const Icon(Icons.download_rounded, color: Color(0xFF6B7280), size: 24),
+              ),
+            ],
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(track.label,
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-          ),
-          GestureDetector(
-            onTap: () => _launchUrl(context, track.url),
-            child: Container(
-              width: 36, height: 36,
-              decoration: const BoxDecoration(color: _purple, shape: BoxShape.circle),
-              child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 20),
+          if (isActive) ...[
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: SliderTheme(
+                    data: SliderTheme.of(context).copyWith(
+                      trackHeight: 4,
+                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
+                      overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
+                      activeTrackColor: _purple,
+                      inactiveTrackColor: const Color(0xFFE5E7EB),
+                      thumbColor: _purple,
+                    ),
+                    child: Slider(
+                      value: _trackPlayPosition,
+                      onChanged: _trackDuration.inMilliseconds > 0
+                          ? (v) => _trackPlayer.seek(Duration(
+                              milliseconds: (v * _trackDuration.inMilliseconds).round()))
+                          : null,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  '${_formatTime(_trackPosition.inMilliseconds / 1000)} / ${_formatTime(_trackDuration.inMilliseconds / 1000)}',
+                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: _purple),
+                ),
+              ],
             ),
-          ),
-          const SizedBox(width: 10),
-          GestureDetector(
-            onTap: () => _launchUrl(context, track.url),
-            child: const Icon(Icons.download_rounded, color: Color(0xFF6B7280), size: 24),
-          ),
+          ],
         ],
       ),
     );

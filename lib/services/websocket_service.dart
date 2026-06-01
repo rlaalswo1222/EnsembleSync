@@ -5,13 +5,16 @@ import '../services/api_constants.dart';
 
 // WebSocket으로 주고받는 이벤트 타입
 enum WsEventType {
-  syncDraw,   // 다른 참여자 필기 수신 (서버 브로드캐스트: sync_draw)
-  erase,      // 지우기
-  clear,      // 전체 삭제
-  userJoined, // 참가자 입장
-  userLeft,   // 참가자 퇴장
-  userList,      // 입장 시 현재 참여자 목록 수신
-  scoreUploaded, // 악보 업로드 알림
+  syncDraw,
+  erase,
+  clear,
+  userJoined,
+  userLeft,
+  userList,
+  scoreUploaded,
+  bpmAnalyzed,
+  trackSeparated,
+  separationProgress,
   unknown,
 }
 
@@ -33,7 +36,10 @@ class WebSocketService {
   int _reconnectAttempts = 0;
   static const _maxReconnectAttempts = 5;
 
-  Stream<WsEvent> get events => _controller!.stream;
+  Stream<WsEvent> get events {
+    _controller ??= StreamController<WsEvent>.broadcast();
+    return _controller!.stream;
+  }
 
   WebSocketService({required this.roomId, required this.nickname});
 
@@ -78,9 +84,12 @@ class WebSocketService {
       case 'clear':      return WsEventType.clear;
       case 'user_joined': return WsEventType.userJoined;
       case 'user_left':  return WsEventType.userLeft;
-      case 'user_list':      return WsEventType.userList;
-      case 'score_uploaded': return WsEventType.scoreUploaded;
-      default:               return WsEventType.unknown;
+      case 'user_list':          return WsEventType.userList;
+      case 'score_uploaded':     return WsEventType.scoreUploaded;
+      case 'bpm_analyzed':       return WsEventType.bpmAnalyzed;
+      case 'track_separated':    return WsEventType.trackSeparated;
+      case 'separation_progress': return WsEventType.separationProgress;
+      default:                   return WsEventType.unknown;
     }
   }
 
