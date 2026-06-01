@@ -128,7 +128,7 @@ def bpm_analysis_task(self, job_id: str, audio_file_id: str):
         )
         conn.commit()
 
-        # 6. WebSocket 푸시 (websocket.py Redis pub/sub 패턴)
+        # 6. WebSocket 푸시
         redis_client = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
         redis_client.publish(f"room_{room_id}", json.dumps({
             "type": "bpm_analyzed",

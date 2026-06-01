@@ -167,13 +167,13 @@ class _MainScreenState extends State<MainScreen> {
               TrackResult(label: '드럼', url: tracksJson['drums'] as String, icon: Icons.graphic_eq_rounded),
             if (tracksJson['bass'] != null)
               TrackResult(label: '베이스', url: tracksJson['bass'] as String, icon: Icons.bar_chart_rounded),
-            if (tracksJson['guitar'] != null)
-              TrackResult(label: '기타', url: tracksJson['guitar'] as String, icon: Icons.queue_music_rounded),
+            if (tracksJson['other'] != null)
+              TrackResult(label: '기타', url: tracksJson['other'] as String, icon: Icons.queue_music_rounded),
           ];
           if (mounted) setState(() => _tracks = results);
           break;
 
-        // ── BPM 분석 완료 WebSocket 알림 ────────────────────
+        // ── BPM 분석 완료 ────────────────────────────────────
         case WsEventType.bpmAnalyzed:
           final jobId = event.data['job_id'] as String?;
           if (jobId != null && mounted) {

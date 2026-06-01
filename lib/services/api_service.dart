@@ -94,8 +94,6 @@ class ApiService {
   }
 
   // ── 음원 파일 업로드 ───────────────────────────────────────
-  /// POST /api/audio/{room_id}/upload
-  /// purpose: 'bpm' | 'pitch' | 'track'
   Future<Map<String, dynamic>> uploadAudio({
     required String roomId,
     required Uint8List bytes,
@@ -114,7 +112,6 @@ class ApiService {
   }
 
   // ── 트랙 분리 요청 ─────────────────────────────────────────
-  /// POST /api/track/separate
   Future<Map<String, dynamic>> requestTrackSeparation({
     required String roomId,
     required Uint8List bytes,
@@ -132,7 +129,6 @@ class ApiService {
   }
 
   // ── BPM 분석 시작 ─────────────────────────────────────────
-  /// POST /api/analysis/{room_id}/start?audio_file_id=...&job_type=bpm
   Future<Map<String, dynamic>> startBpmAnalysis({
     required String roomId,
     required String audioFileId,
@@ -150,11 +146,6 @@ class ApiService {
   }
 
   // ── BPM 분석 결과 조회 ─────────────────────────────────────
-  /// GET /api/bpm/{job_id}/result
-  /// Response: { "status": 200, "job_id": "...", "base_bpm": 120.0,
-  ///   "avg_bpm": 119.0, "max_bpm": 122.0, "min_bpm": 115.0,
-  ///   "bpm_data": [{"time": 0.0, "bpm": 120.0}, ...],
-  ///   "deviation_sections": [{"start": 0.1, "end": 0.2, "bpm": 115.0}, ...] }
   Future<Map<String, dynamic>> getBpmResult(String jobId) async {
     final uri = Uri.parse('${ApiConstants.baseUrl}/api/bpm/$jobId/result');
     final response = await _client.get(uri, headers: _headers).timeout(const Duration(seconds: 10));

@@ -1,45 +1,5 @@
-class BpmPoint {
-  final double time;
-  final double bpm;
-  BpmPoint({required this.time, required this.bpm});
-
-  factory BpmPoint.fromJson(Map<String, dynamic> j) => BpmPoint(
-        time: (j['time'] as num).toDouble(),
-        bpm: (j['bpm'] as num).toDouble(),
-      );
-}
-
-class DeviationSection {
-  final double startTime;
-  final double endTime;
-  final double avgBpm;
-
-  DeviationSection({
-    required this.startTime,
-    required this.endTime,
-    required this.avgBpm,
-  });
-
-  factory DeviationSection.fromJson(Map<String, dynamic> j) => DeviationSection(
-        startTime: (j['start_time'] as num).toDouble(),
-        endTime: (j['end_time'] as num).toDouble(),
-        avgBpm: (j['avg_bpm'] as num).toDouble(),
-      );
-
-  String get startLabel => _fmt(startTime);
-  String get endLabel => _fmt(endTime);
-
-  double deviation(double baseBpm) => avgBpm - baseBpm;
-  bool isFaster(double baseBpm) => avgBpm > baseBpm;
-
-  String _fmt(double secs) {
-    final m = (secs ~/ 60).toString().padLeft(1, '0');
-    final s = (secs % 60).toInt().toString().padLeft(2, '0');
-    return '$m:$s';
-  }
-}
-
 class BpmResult {
+  final String jobId;
   final double baseBpm;
   final double avgBpm;
   final double maxBpm;
@@ -47,7 +7,8 @@ class BpmResult {
   final List<BpmPoint> bpmData;
   final List<DeviationSection> deviationSections;
 
-  BpmResult({
+  const BpmResult({
+    required this.jobId,
     required this.baseBpm,
     required this.avgBpm,
     required this.maxBpm,
@@ -56,16 +17,60 @@ class BpmResult {
     required this.deviationSections,
   });
 
-  factory BpmResult.fromJson(Map<String, dynamic> j) => BpmResult(
-        baseBpm: (j['base_bpm'] as num).toDouble(),
-        avgBpm: (j['avg_bpm'] as num).toDouble(),
-        maxBpm: (j['max_bpm'] as num).toDouble(),
-        minBpm: (j['min_bpm'] as num).toDouble(),
-        bpmData: (j['bpm_data'] as List)
-            .map((e) => BpmPoint.fromJson(e as Map<String, dynamic>))
-            .toList(),
-        deviationSections: (j['deviation_sections'] as List? ?? [])
-            .map((e) => DeviationSection.fromJson(e as Map<String, dynamic>))
-            .toList(),
+  factory BpmResult.fromJson(Map<String, dynamic> json) {
+    return BpmResult(
+      jobId: json['job_id'] as String? ?? '',
+      baseBpm: (json['base_bpm'] as num?)?.toDouble() ?? 0,
+      avgBpm: (json['avg_bpm'] as num?)?.toDouble() ?? 0,
+      maxBpm: (json['max_bpm'] as num?)?.toDouble() ?? 0,
+      minBpm: (json['min_bpm'] as num?)?.toDouble() ?? 0,
+      bpmData: (json['bpm_data'] as List<dynamic>? ?? [])
+          .map((e) => BpmPoint.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      deviationSections: (json['deviation_sections'] as List<dynamic>? ?? [])
+          .map((e) => DeviationSection.fromJson(e as Map<String, dynamic>))
+          .toList(),
+    );
+  }
+}
+
+class BpmPoint {
+  final double time;
+  final double bpm;
+  const BpmPoint({required this.time, required this.bpm});
+
+  factory BpmPoint.fromJson(Map<String, dynamic> json) => BpmPoint(
+        time: (json['time'] as num).toDouble(),
+        bpm: (json['bpm'] as num).toDouble(),
       );
+}
+
+class DeviationSection {
+  final double start;
+  final double end;
+  final double bpm;
+
+  const DeviationSection({
+    required this.start,
+    required this.end,
+    required this.bpm,
+  });
+
+  factory DeviationSection.fromJson(Map<String, dynamic> json) => DeviationSection(
+        start: (json['start'] as num).toDouble(),
+        end: (json['end'] as num).toDouble(),
+        bpm: (json['bpm'] as num).toDouble(),
+      );
+
+  double deviation(double baseBpm) => bpm - baseBpm;
+  bool isFaster(double baseBpm) => bpm > baseBpm;
+
+  String get startLabel => _format(start);
+  String get endLabel => _format(end);
+
+  String _format(double seconds) {
+    final m = (seconds ~/ 60).toString().padLeft(1, '0');
+    final s = (seconds % 60).toInt().toString().padLeft(2, '0');
+    return '$m:$s';
+  }
 }

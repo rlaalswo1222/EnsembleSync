@@ -6,7 +6,6 @@ import '../models/bpm_result.dart';
 import '../services/api_service.dart';
 import 'analysis_tab.dart';
 
-// ── 결과 탭 모드 ──────────────────────────────────────────────
 enum ResultMode { bpm, track, empty }
 
 class ResultTab extends StatefulWidget {
@@ -210,7 +209,6 @@ class _ResultTabState extends State<ResultTab> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ── 헤더 ────────────────────────────────────────────
           const Text('BPM 분석 결과',
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
           if (widget.audioFilename != null) ...[
@@ -220,7 +218,6 @@ class _ResultTabState extends State<ResultTab> {
           ],
           const SizedBox(height: 16),
 
-          // ── 전체 BPM 수치 ────────────────────────────────────
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(16),
@@ -255,7 +252,6 @@ class _ResultTabState extends State<ResultTab> {
                   ],
                 ),
                 const SizedBox(height: 12),
-                // 평균/최고/최저 칩
                 Row(
                   children: [
                     _StatChip(label: '평균', value: result.avgBpm.toInt().toString(), color: const Color(0xFFEDE9FE), textColor: _purple),
@@ -270,7 +266,6 @@ class _ResultTabState extends State<ResultTab> {
           ),
           const SizedBox(height: 12),
 
-          // ── BPM 그래프 ───────────────────────────────────────
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(16),
@@ -295,7 +290,6 @@ class _ResultTabState extends State<ResultTab> {
                 ),
                 const SizedBox(height: 16),
 
-                // ── 재생 슬라이더 ────────────────────────────
                 Row(
                   children: [
                     GestureDetector(
@@ -339,7 +333,6 @@ class _ResultTabState extends State<ResultTab> {
                       ),
                     ),
                     const SizedBox(width: 8),
-                    // 현재시간 / 전체시간
                     Text(
                       '${_formatTime(currentTime)} / ${_formatTime(totalTime)}',
                       style: const TextStyle(
@@ -354,7 +347,6 @@ class _ResultTabState extends State<ResultTab> {
           ),
           const SizedBox(height: 12),
 
-          // ── 템포 변화 구간 ───────────────────────────────────
           if (result.deviationSections.isNotEmpty) ...[
             Container(
               width: double.infinity,
@@ -553,13 +545,11 @@ class _BpmGraphPainter extends CustomPainter {
     final maxBpm = allBpms.reduce((a, b) => a > b ? a : b) + 5;
     final bpmRange = maxBpm - minBpm;
 
-    // Y축 레이블 영역
     const leftPad = 36.0;
     const bottomPad = 20.0;
     final graphW = size.width - leftPad;
     final graphH = size.height - bottomPad;
 
-    // Y축 가이드라인 + 레이블
     final gridPaint = Paint()..color = _grey..strokeWidth = 1;
     final labelStyle = const TextStyle(fontSize: 10, color: Color(0xFF9CA3AF));
 
@@ -570,14 +560,12 @@ class _BpmGraphPainter extends CustomPainter {
       _drawText(canvas, bpmVal.toInt().toString(), Offset(0, y - 6), labelStyle);
     }
 
-    // X축 레이블
     final xLabels = _generateTimeLabels(maxTime);
     for (final t in xLabels) {
       final x = leftPad + graphW * (t / maxTime);
       _drawText(canvas, _formatTime(t), Offset(x - 10, graphH + 4), labelStyle);
     }
 
-    // 기준선 (baseBpm)
     final baseY = graphH - (graphH * (baseBpm - minBpm) / bpmRange);
     final basePaint = Paint()
       ..color = _grey
@@ -590,7 +578,6 @@ class _BpmGraphPainter extends CustomPainter {
     }
     canvas.drawPath(dashPath, basePaint);
 
-    // BPM 곡선
     final linePaint = Paint()
       ..color = _purple
       ..strokeWidth = 2
@@ -606,29 +593,24 @@ class _BpmGraphPainter extends CustomPainter {
     }
     canvas.drawPath(path, linePaint);
 
-    // 현재 재생 위치 점 + 세로선
     final curTime = playPosition * maxTime;
     final curX = leftPad + graphW * playPosition;
-    // 가장 가까운 BPM 찾기
     final curBpmPoint = bpmData.reduce((a, b) =>
         (a.time - curTime).abs() < (b.time - curTime).abs() ? a : b);
     final curY = graphH - (graphH * (curBpmPoint.bpm - minBpm) / bpmRange);
 
-    // 세로선
     canvas.drawLine(
       Offset(curX, 0),
       Offset(curX, graphH),
       Paint()..color = _grey..strokeWidth = 1,
     );
 
-    // 점
     canvas.drawCircle(
       Offset(curX, curY),
       6,
       Paint()..color = _purple,
     );
 
-    // 현재 BPM 레이블
     _drawText(
       canvas,
       '현재 ${curBpmPoint.bpm.toInt()}',

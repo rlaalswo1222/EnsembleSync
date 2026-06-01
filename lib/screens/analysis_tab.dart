@@ -4,10 +4,8 @@ import 'package:file_picker/file_picker.dart';
 import '../services/api_service.dart';
 import '../services/websocket_service.dart';
 
-// ── 분석 상태 ─────────────────────────────────────────────────
 enum AnalysisState { idle, loading, done }
 
-// ── 트랙 결과 모델 ────────────────────────────────────────────
 class TrackResult {
   final String label;
   final String url;
@@ -100,12 +98,10 @@ class _AnalysisTabState extends State<AnalysisTab> {
     }
   }
 
-  // ── BPM 분석 시작 ─────────────────────────────────────────
   Future<void> _startBpm() async {
     if (_audioBytes == null) return;
     setState(() => _bpmState = AnalysisState.loading);
     try {
-      // 1. 음원 업로드 → audio_file_id 획득
       final uploadResult = await ApiService().uploadAudio(
         roomId: widget.roomId,
         bytes: _audioBytes!,
@@ -113,7 +109,6 @@ class _AnalysisTabState extends State<AnalysisTab> {
         purpose: 'bpm',
       );
       final audioFileId = uploadResult['audio_file_id'] as String;
-      // 2. BPM 분석 시작 → job_id 획득 (완료는 WS bpm_analyzed 이벤트로 수신)
       await ApiService().startBpmAnalysis(
         roomId: widget.roomId,
         audioFileId: audioFileId,
