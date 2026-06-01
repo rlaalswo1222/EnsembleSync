@@ -67,10 +67,12 @@ class _MainScreenState extends State<MainScreen> {
   // ── 트랙 분리 결과 ───────────────────────────────────────────
   List<TrackResult> _tracks = [];
   String? _audioFilename;
+  Uint8List? _audioBytes;
 
   // ── BPM 분석 결과 ────────────────────────────────────────────
   String? _bpmJobId;
   BpmResult? _bpmResult;
+  ResultMode? _preferredResultMode;
 
   static const _avatarColors = [
     Color(0xFF8B5CF6),
@@ -171,17 +173,16 @@ class _MainScreenState extends State<MainScreen> {
           if (mounted) setState(() => _tracks = results);
           break;
 
-        // ── BPM 분석 완료 WebSocket 알림 ────────────────────
-        // 서버가 bpm_complete 이벤트로 job_id 전달 시 자동 결과 로드
-        case WsEventType.unknown:
-          final type = event.data['type'] as String?;
-          if (type == 'bpm_complete') {
-            final jobId = event.data['job_id'] as String?;
-            if (jobId != null && mounted) {
-              setState(() => _bpmJobId = jobId);
-              _loadBpmResult(jobId);
-            }
+        // ── BPM 분석 완료 ────────────────────────────────────
+        case WsEventType.bpmAnalyzed:
+          final jobId = event.data['job_id'] as String?;
+          if (jobId != null && mounted) {
+            setState(() => _bpmJobId = jobId);
+            _loadBpmResult(jobId);
           }
+          break;
+
+        case WsEventType.unknown:
           break;
 
         default:
@@ -289,6 +290,7 @@ class _MainScreenState extends State<MainScreen> {
                 final result = await FilePicker.platform.pickFiles(
                   type: FileType.custom,
                   allowedExtensions: ['pdf'],
+                  withData: true,
                 );
                 if (result != null && result.files.first.bytes != null) {
                   final bytes = result.files.first.bytes!;
@@ -537,17 +539,30 @@ class _MainScreenState extends State<MainScreen> {
           roomId: widget.roomId,
           roomCode: widget.roomCode,
           ws: _ws,
-          onGoToResult: () => setState(() => _tabIndex = 2),
+          onGoToResult: () => setState(() {
+            _preferredResultMode = ResultMode.bpm;
+            _tabIndex = 2;
+          }),
+          onGoToTrackResult: () => setState(() {
+            _preferredResultMode = ResultMode.track;
+            _tabIndex = 2;
+          }),
           onBpmJobId: (jobId) {
             setState(() => _bpmJobId = jobId);
             _loadBpmResult(jobId);
           },
+          onAudioPicked: (bytes, filename) => setState(() {
+            _audioBytes = bytes;
+            _audioFilename = filename;
+          }),
         ),
         ResultTab(
           tracks: _tracks,
           audioFilename: _audioFilename,
+          audioBytes: _audioBytes,
           bpmJobId: _bpmJobId,
           bpmResult: _bpmResult,
+          preferredMode: _preferredResultMode,
         ),
       ],
     );

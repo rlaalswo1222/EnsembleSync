@@ -25,9 +25,6 @@ def separate_audio_task(self, file_path: str, room_id: str, job_id: str):
         tmp_dir = tempfile.mkdtemp()
         input_path = ""
 
-        # ==========================================
-        # [TODO 2: FFmpeg 파일 변환 처리]
-        # ==========================================
         if original.suffix.lower() in ['.mp3', '.m4a', '.aac', '.ogg', '.flac']:
             wav_path = os.path.join(tmp_dir, original.stem + '.wav')
 
@@ -44,9 +41,6 @@ def separate_audio_task(self, file_path: str, room_id: str, job_id: str):
             input_path = str(original)
 
 
-        # ==========================================
-        # [TODO 3: Demucs 트랙 분리 실행]
-        # ==========================================
         cmd = [
             sys.executable, "-m", "demucs",
             "--name", "htdemucs",
@@ -86,9 +80,6 @@ def separate_audio_task(self, file_path: str, room_id: str, job_id: str):
             if not (demucs_out / f"{track_name}.wav").exists():
                 raise Exception(f"Demucs 출력 파일 없음: {track_name}.wav")
 
-        # ==========================================
-        # [TODO 4: EC2 저장 경로 이동 및 URL 생성]
-        # ==========================================
         base_url = f"http://3.106.49.28:8000/uploads/separated/{job_id}/htdemucs/{stem_name}"
         tracks_dict = {
             "vocals": f"{base_url}/vocals.wav",
@@ -97,9 +88,6 @@ def separate_audio_task(self, file_path: str, room_id: str, job_id: str):
             "other":  f"{base_url}/other.wav",
         }
 
-        # ==========================================
-        # [TODO 5: separated_track DB 연동]
-        # ==========================================
         conn = get_db()
         cur = conn.cursor()
 
@@ -122,9 +110,6 @@ def separate_audio_task(self, file_path: str, room_id: str, job_id: str):
             cur.close()
             conn.close()
 
-        # ==========================================
-        # [TODO 6: WebSocket 완료 알림]
-        # ==========================================
         complete_msg = {
             "type": "track_separated",
             "payload": {

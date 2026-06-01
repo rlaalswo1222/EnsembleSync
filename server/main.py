@@ -9,6 +9,7 @@ import track_download
 import score_query
 import score_upload
 import websocket
+import bpm_result
 import os
 
 app = FastAPI()
@@ -35,3 +36,4 @@ app.include_router(track_download.router)
 app.include_router(score_query.router)
 app.include_router(score_upload.router)
 app.include_router(websocket.router)
+app.include_router(bpm_result.router)

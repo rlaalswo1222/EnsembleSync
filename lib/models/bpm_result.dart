@@ -1,4 +1,3 @@
-// ── BPM 분석 결과 모델 ────────────────────────────────────────
 class BpmResult {
   final String jobId;
   final double baseBpm;
@@ -63,13 +62,9 @@ class DeviationSection {
         bpm: (json['bpm'] as num).toDouble(),
       );
 
-  // 기준 BPM 대비 변화량
   double deviation(double baseBpm) => bpm - baseBpm;
-
-  // 빨라짐/느려짐 여부
   bool isFaster(double baseBpm) => bpm > baseBpm;
 
-  // mm:ss 포맷
   String get startLabel => _format(start);
   String get endLabel => _format(end);
 

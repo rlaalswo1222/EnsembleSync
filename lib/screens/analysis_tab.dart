@@ -4,10 +4,8 @@ import 'package:file_picker/file_picker.dart';
 import '../services/api_service.dart';
 import '../services/websocket_service.dart';
 
-// ── 분석 상태 ─────────────────────────────────────────────────
 enum AnalysisState { idle, loading, done }
 
-// ── 트랙 결과 모델 ────────────────────────────────────────────
 class TrackResult {
   final String label;
   final String url;
@@ -20,7 +18,9 @@ class AnalysisTab extends StatefulWidget {
   final String roomCode;
   final WebSocketService ws;
   final VoidCallback onGoToResult;
-  final void Function(String jobId)? onBpmJobId; // BPM job_id 전달 콜백
+  final VoidCallback? onGoToTrackResult;
+  final void Function(String jobId)? onBpmJobId;
+  final void Function(Uint8List bytes, String filename)? onAudioPicked;
 
   const AnalysisTab({
     super.key,
@@ -28,7 +28,9 @@ class AnalysisTab extends StatefulWidget {
     required this.roomCode,
     required this.ws,
     required this.onGoToResult,
+    this.onGoToTrackResult,
     this.onBpmJobId,
+    this.onAudioPicked,
   });
 
   @override
@@ -45,7 +47,6 @@ class _AnalysisTabState extends State<AnalysisTab> {
   AnalysisState _pitchState = AnalysisState.idle;
   AnalysisState _trackState = AnalysisState.idle;
 
-  List<TrackResult> _tracks = [];
   double _trackProgress = 0.0;
 
   @override
@@ -56,24 +57,18 @@ class _AnalysisTabState extends State<AnalysisTab> {
 
   void _listenWs() {
     widget.ws.events.listen((event) {
-      if (event.type == WsEventType.trackSeparated) {
-        final payload = event.data['payload'] as Map<String, dynamic>? ?? {};
-        final tracksJson = payload['tracks'] as Map<String, dynamic>? ?? {};
-        final results = <TrackResult>[
-          if (tracksJson['vocals'] != null)
-            TrackResult(label: '보컬', url: tracksJson['vocals'] as String, icon: Icons.music_note_rounded),
-          if (tracksJson['drums'] != null)
-            TrackResult(label: '드럼', url: tracksJson['drums'] as String, icon: Icons.graphic_eq_rounded),
-          if (tracksJson['bass'] != null)
-            TrackResult(label: '베이스', url: tracksJson['bass'] as String, icon: Icons.bar_chart_rounded),
-          if (tracksJson['guitar'] != null)
-            TrackResult(label: '기타', url: tracksJson['guitar'] as String, icon: Icons.queue_music_rounded),
-        ];
+      if (event.type == WsEventType.bpmAnalyzed) {
+        final jobId = event.data['job_id'] as String?;
+        if (jobId != null) widget.onBpmJobId?.call(jobId);
+        if (mounted) {
+          setState(() => _bpmState = AnalysisState.done);
+          widget.onGoToResult();
+        }
+      } else if (event.type == WsEventType.trackSeparated) {
         if (mounted) {
           setState(() {
             _trackState = AnalysisState.done;
             _trackProgress = 1.0;
-            _tracks = results;
           });
         }
       } else if (event.type == WsEventType.separationProgress) {
@@ -87,34 +82,37 @@ class _AnalysisTabState extends State<AnalysisTab> {
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['mp3', 'wav', 'flac', 'm4a'],
+      withData: true,
     );
     if (result != null && result.files.first.bytes != null) {
+      final bytes = result.files.first.bytes!;
+      final filename = result.files.first.name;
       setState(() {
-        _audioBytes = result.files.first.bytes;
-        _audioFilename = result.files.first.name;
+        _audioBytes = bytes;
+        _audioFilename = filename;
         _bpmState = AnalysisState.idle;
         _pitchState = AnalysisState.idle;
         _trackState = AnalysisState.idle;
-        _tracks = [];
       });
+      widget.onAudioPicked?.call(bytes, filename);
     }
   }
 
-  // ── BPM 분석 시작 ─────────────────────────────────────────
   Future<void> _startBpm() async {
     if (_audioBytes == null) return;
     setState(() => _bpmState = AnalysisState.loading);
     try {
-      final result = await ApiService().uploadAudio(
+      final uploadResult = await ApiService().uploadAudio(
         roomId: widget.roomId,
         bytes: _audioBytes!,
         filename: _audioFilename!,
         purpose: 'bpm',
       );
-      // job_id 있으면 상위로 전달
-      final jobId = result['audio_file_id'] as String? ?? result['job_id'] as String?;
-      if (jobId != null) widget.onBpmJobId?.call(jobId);
-      if (mounted) setState(() => _bpmState = AnalysisState.done);
+      final audioFileId = uploadResult['audio_file_id'] as String;
+      await ApiService().startBpmAnalysis(
+        roomId: widget.roomId,
+        audioFileId: audioFileId,
+      );
     } catch (e) {
       if (mounted) {
         setState(() => _bpmState = AnalysisState.idle);
@@ -124,22 +122,25 @@ class _AnalysisTabState extends State<AnalysisTab> {
   }
 
   Future<void> _startPitch() async {
-    if (_audioBytes == null) return;
-    setState(() => _pitchState = AnalysisState.loading);
-    try {
-      await ApiService().uploadAudio(
-        roomId: widget.roomId,
-        bytes: _audioBytes!,
-        filename: _audioFilename!,
-        purpose: 'pitch',
-      );
-      if (mounted) setState(() => _pitchState = AnalysisState.done);
-    } catch (e) {
-      if (mounted) {
-        setState(() => _pitchState = AnalysisState.idle);
-        _showError('피치 분석 실패: $e');
-      }
-    }
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('미구현 기능',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+        content: const Text(
+          '피치 분석 기능은 현재 개발 중입니다.\n추후 업데이트를 통해 제공될 예정입니다.',
+          style: TextStyle(fontSize: 14, color: Color(0xFF6B7280)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('확인',
+                style: TextStyle(color: Color(0xFF8B5CF6), fontWeight: FontWeight.w600)),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _startTrack() async {
@@ -174,12 +175,24 @@ class _AnalysisTabState extends State<AnalysisTab> {
           _buildAudioUploadArea(),
           const SizedBox(height: 12),
           _buildAnalysisCard(
+            icon: Icons.content_cut_rounded,
+            title: '트랙 분리',
+            subtitle: '보컬/드럼/베이스/기타를 분리합니다',
+            state: _trackState,
+            onStart: _startTrack,
+            onResult: widget.onGoToTrackResult ?? widget.onGoToResult,
+            buttonLabel: '분리 시작',
+            progressValue: _trackProgress,
+          ),
+          const SizedBox(height: 12),
+          _buildAnalysisCard(
             icon: Icons.graphic_eq_rounded,
             title: 'BPM 분석',
             subtitle: '구간별 템포 이탈을 확인하세요',
             state: _bpmState,
             onStart: _startBpm,
             onResult: widget.onGoToResult,
+            enabled: _trackState == AnalysisState.done,
           ),
           const SizedBox(height: 12),
           _buildAnalysisCard(
@@ -189,17 +202,7 @@ class _AnalysisTabState extends State<AnalysisTab> {
             state: _pitchState,
             onStart: _startPitch,
             onResult: widget.onGoToResult,
-          ),
-          const SizedBox(height: 12),
-          _buildAnalysisCard(
-            icon: Icons.content_cut_rounded,
-            title: '트랙 분리',
-            subtitle: '보컬/드럼/베이스/기타를 분리합니다',
-            state: _trackState,
-            onStart: _startTrack,
-            onResult: widget.onGoToResult,
-            buttonLabel: '분리 시작',
-            progressValue: _trackProgress,
+            enabled: _trackState == AnalysisState.done,
           ),
         ],
       ),
@@ -253,7 +256,6 @@ class _AnalysisTabState extends State<AnalysisTab> {
               _bpmState = AnalysisState.idle;
               _pitchState = AnalysisState.idle;
               _trackState = AnalysisState.idle;
-              _tracks = [];
             }),
             child: const Icon(Icons.close_rounded, size: 18, color: Color(0xFF9CA3AF)),
           ),
@@ -271,6 +273,7 @@ class _AnalysisTabState extends State<AnalysisTab> {
     required VoidCallback onResult,
     String buttonLabel = '분석 시작',
     double progressValue = 0.0,
+    bool enabled = true,
   }) {
     final hasFile = _audioBytes != null;
 
@@ -306,11 +309,18 @@ class _AnalysisTabState extends State<AnalysisTab> {
           const SizedBox(height: 12),
 
           if (state == AnalysisState.idle)
-            _ActionButton(
-              label: buttonLabel,
-              color: hasFile ? _purple : const Color(0xFFD1D5DB),
-              onTap: hasFile ? onStart : null,
-            ),
+            if (!enabled)
+              const _ActionButton(
+                label: '트랙 분리 후 사용 가능',
+                color: Color(0xFFD1D5DB),
+                onTap: null,
+              )
+            else
+              _ActionButton(
+                label: buttonLabel,
+                color: hasFile ? _purple : const Color(0xFFD1D5DB),
+                onTap: hasFile ? onStart : null,
+              ),
 
           if (state == AnalysisState.loading) ...[
             Stack(

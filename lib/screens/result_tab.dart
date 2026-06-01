@@ -1,25 +1,29 @@
-import 'dart:async';
+import 'dart:typed_data';
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/bpm_result.dart';
 import '../services/api_service.dart';
 import 'analysis_tab.dart';
 
-// ── 결과 탭 모드 ──────────────────────────────────────────────
 enum ResultMode { bpm, track, empty }
 
 class ResultTab extends StatefulWidget {
   final List<TrackResult> tracks;
   final String? audioFilename;
-  final String? bpmJobId;       // BPM 분석 job_id
-  final BpmResult? bpmResult;   // 이미 로드된 결과
+  final Uint8List? audioBytes;
+  final String? bpmJobId;
+  final BpmResult? bpmResult;
+  final ResultMode? preferredMode;
 
   const ResultTab({
     super.key,
     required this.tracks,
     this.audioFilename,
+    this.audioBytes,
     this.bpmJobId,
     this.bpmResult,
+    this.preferredMode,
   });
 
   @override
@@ -34,10 +38,23 @@ class _ResultTabState extends State<ResultTab> {
   BpmResult? _bpmResult;
   bool _isLoading = false;
 
-  // ── 재생 시뮬레이션 ──────────────────────────────────────────
-  Timer? _playTimer;
-  double _playPosition = 0.0; // 0.0 ~ 1.0
+  // ── BPM 오디오 재생 ──────────────────────────────────────────
+  final _player = AudioPlayer();
+  Duration _position = Duration.zero;
+  Duration _duration = Duration.zero;
   bool _isPlaying = false;
+  bool _sourceLoaded = false;
+
+  // ── 트랙 오디오 재생 ─────────────────────────────────────────
+  final _trackPlayer = AudioPlayer();
+  Duration _trackPosition = Duration.zero;
+  Duration _trackDuration = Duration.zero;
+  bool _trackIsPlaying = false;
+  String? _playingTrackUrl;
+
+  double get _playPosition => _duration.inMilliseconds > 0
+      ? _position.inMilliseconds / _duration.inMilliseconds
+      : 0.0;
 
   @override
   void initState() {
@@ -46,11 +63,49 @@ class _ResultTabState extends State<ResultTab> {
     if (_bpmResult == null && widget.bpmJobId != null) {
       _loadBpmResult();
     }
+    _player.onPositionChanged.listen((p) {
+      if (mounted) setState(() => _position = p);
+    });
+    _player.onDurationChanged.listen((d) {
+      if (mounted) setState(() => _duration = d);
+    });
+    _player.onPlayerStateChanged.listen((s) {
+      if (mounted) setState(() => _isPlaying = s == PlayerState.playing);
+    });
+    _player.onPlayerComplete.listen((_) {
+      if (mounted) setState(() { _position = Duration.zero; _sourceLoaded = false; });
+    });
+
+    _trackPlayer.onPositionChanged.listen((p) {
+      if (mounted) setState(() => _trackPosition = p);
+    });
+    _trackPlayer.onDurationChanged.listen((d) {
+      if (mounted) setState(() => _trackDuration = d);
+    });
+    _trackPlayer.onPlayerStateChanged.listen((s) {
+      if (mounted) setState(() => _trackIsPlaying = s == PlayerState.playing);
+    });
+    _trackPlayer.onPlayerComplete.listen((_) {
+      if (mounted) setState(() { _trackPosition = Duration.zero; _trackIsPlaying = false; });
+    });
+  }
+
+  @override
+  void didUpdateWidget(ResultTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.bpmResult != null && _bpmResult == null) {
+      setState(() => _bpmResult = widget.bpmResult);
+    } else if (widget.bpmJobId != null &&
+        widget.bpmJobId != oldWidget.bpmJobId &&
+        _bpmResult == null) {
+      _loadBpmResult();
+    }
   }
 
   @override
   void dispose() {
-    _playTimer?.cancel();
+    _player.dispose();
+    _trackPlayer.dispose();
     super.dispose();
   }
 
@@ -64,28 +119,45 @@ class _ResultTabState extends State<ResultTab> {
     }
   }
 
-  // ── 재생/정지 토글 ────────────────────────────────────────────
-  void _togglePlay() {
-    if (_isPlaying) {
-      _playTimer?.cancel();
-      setState(() => _isPlaying = false);
+  // ── 트랙 재생/정지 ────────────────────────────────────────────
+  Future<void> _playTrackAudio(String url) async {
+    if (_playingTrackUrl == url) {
+      if (_trackIsPlaying) {
+        await _trackPlayer.pause();
+      } else {
+        await _trackPlayer.resume();
+      }
     } else {
-      setState(() => _isPlaying = true);
-      _playTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
-        if (!mounted) return;
-        setState(() {
-          _playPosition += 0.001;
-          if (_playPosition >= 1.0) {
-            _playPosition = 0.0;
-            _isPlaying = false;
-            _playTimer?.cancel();
-          }
-        });
+      await _trackPlayer.stop();
+      setState(() {
+        _playingTrackUrl = url;
+        _trackPosition = Duration.zero;
+        _trackDuration = Duration.zero;
       });
+      await _trackPlayer.play(UrlSource(url));
+    }
+  }
+
+  double get _trackPlayPosition => _trackDuration.inMilliseconds > 0
+      ? _trackPosition.inMilliseconds / _trackDuration.inMilliseconds
+      : 0.0;
+
+  // ── BPM 재생/정지 토글 ────────────────────────────────────────
+  Future<void> _togglePlay() async {
+    if (widget.audioBytes == null) return;
+    if (_isPlaying) {
+      await _player.pause();
+    } else if (_sourceLoaded) {
+      await _player.resume();
+    } else {
+      await _player.play(BytesSource(widget.audioBytes!));
+      _sourceLoaded = true;
     }
   }
 
   ResultMode get _mode {
+    if (widget.preferredMode == ResultMode.track && widget.tracks.isNotEmpty) return ResultMode.track;
+    if (widget.preferredMode == ResultMode.bpm && _bpmResult != null) return ResultMode.bpm;
     if (_bpmResult != null) return ResultMode.bpm;
     if (widget.tracks.isNotEmpty) return ResultMode.track;
     return ResultMode.empty;
@@ -127,15 +199,16 @@ class _ResultTabState extends State<ResultTab> {
   // ── BPM 결과 화면 ──────────────────────────────────────────
   Widget _buildBpmResult() {
     final result = _bpmResult!;
-    final totalTime = result.bpmData.isNotEmpty ? result.bpmData.last.time : 1.0;
-    final currentTime = _playPosition * totalTime;
+    final totalTime = _duration.inMilliseconds > 0
+        ? _duration.inMilliseconds / 1000.0
+        : (result.bpmData.isNotEmpty ? result.bpmData.last.time : 1.0);
+    final currentTime = _position.inMilliseconds / 1000.0;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ── 헤더 ────────────────────────────────────────────
           const Text('BPM 분석 결과',
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
           if (widget.audioFilename != null) ...[
@@ -145,7 +218,6 @@ class _ResultTabState extends State<ResultTab> {
           ],
           const SizedBox(height: 16),
 
-          // ── 전체 BPM 수치 ────────────────────────────────────
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(16),
@@ -180,7 +252,6 @@ class _ResultTabState extends State<ResultTab> {
                   ],
                 ),
                 const SizedBox(height: 12),
-                // 평균/최고/최저 칩
                 Row(
                   children: [
                     _StatChip(label: '평균', value: result.avgBpm.toInt().toString(), color: const Color(0xFFEDE9FE), textColor: _purple),
@@ -195,7 +266,6 @@ class _ResultTabState extends State<ResultTab> {
           ),
           const SizedBox(height: 12),
 
-          // ── BPM 그래프 ───────────────────────────────────────
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(16),
@@ -220,7 +290,6 @@ class _ResultTabState extends State<ResultTab> {
                 ),
                 const SizedBox(height: 16),
 
-                // ── 재생 슬라이더 ────────────────────────────
                 Row(
                   children: [
                     GestureDetector(
@@ -252,18 +321,18 @@ class _ResultTabState extends State<ResultTab> {
                         ),
                         child: Slider(
                           value: _playPosition,
-                          onChanged: (v) {
-                            _playTimer?.cancel();
-                            setState(() {
-                              _playPosition = v;
-                              _isPlaying = false;
-                            });
-                          },
+                          onChanged: _duration.inMilliseconds > 0
+                              ? (v) {
+                                  final target = Duration(
+                                    milliseconds: (v * _duration.inMilliseconds).round(),
+                                  );
+                                  _player.seek(target);
+                                }
+                              : null,
                         ),
                       ),
                     ),
                     const SizedBox(width: 8),
-                    // 현재시간 / 전체시간
                     Text(
                       '${_formatTime(currentTime)} / ${_formatTime(totalTime)}',
                       style: const TextStyle(
@@ -278,7 +347,6 @@ class _ResultTabState extends State<ResultTab> {
           ),
           const SizedBox(height: 12),
 
-          // ── 템포 변화 구간 ───────────────────────────────────
           if (result.deviationSections.isNotEmpty) ...[
             Container(
               width: double.infinity,
@@ -328,40 +396,83 @@ class _ResultTabState extends State<ResultTab> {
   }
 
   Widget _buildTrackCard(TrackResult track) {
+    final isActive = _playingTrackUrl == track.url;
+    final isPlaying = isActive && _trackIsPlaying;
+
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
         color: const Color(0xFFF9F7FF),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFE5E7EB)),
+        border: Border.all(
+          color: isActive ? _purple.withValues(alpha: 0.4) : const Color(0xFFE5E7EB),
+        ),
       ),
-      child: Row(
+      child: Column(
         children: [
-          Container(
-            width: 36, height: 36,
-            decoration: const BoxDecoration(
-              color: Color(0xFFEDE9FE), shape: BoxShape.circle),
-            child: Icon(track.icon, color: _purple, size: 18),
+          Row(
+            children: [
+              Container(
+                width: 36, height: 36,
+                decoration: const BoxDecoration(
+                  color: Color(0xFFEDE9FE), shape: BoxShape.circle),
+                child: Icon(track.icon, color: _purple, size: 18),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(track.label,
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+              ),
+              GestureDetector(
+                onTap: () => _playTrackAudio(track.url),
+                child: Container(
+                  width: 36, height: 36,
+                  decoration: const BoxDecoration(color: _purple, shape: BoxShape.circle),
+                  child: Icon(
+                    isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                    color: Colors.white, size: 20,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              GestureDetector(
+                onTap: () => _launchUrl(context, track.url),
+                child: const Icon(Icons.download_rounded, color: Color(0xFF6B7280), size: 24),
+              ),
+            ],
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(track.label,
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-          ),
-          GestureDetector(
-            onTap: () => _launchUrl(context, track.url),
-            child: Container(
-              width: 36, height: 36,
-              decoration: const BoxDecoration(color: _purple, shape: BoxShape.circle),
-              child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 20),
+          if (isActive) ...[
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: SliderTheme(
+                    data: SliderTheme.of(context).copyWith(
+                      trackHeight: 4,
+                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
+                      overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
+                      activeTrackColor: _purple,
+                      inactiveTrackColor: const Color(0xFFE5E7EB),
+                      thumbColor: _purple,
+                    ),
+                    child: Slider(
+                      value: _trackPlayPosition,
+                      onChanged: _trackDuration.inMilliseconds > 0
+                          ? (v) => _trackPlayer.seek(Duration(
+                              milliseconds: (v * _trackDuration.inMilliseconds).round()))
+                          : null,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  '${_formatTime(_trackPosition.inMilliseconds / 1000)} / ${_formatTime(_trackDuration.inMilliseconds / 1000)}',
+                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: _purple),
+                ),
+              ],
             ),
-          ),
-          const SizedBox(width: 10),
-          GestureDetector(
-            onTap: () => _launchUrl(context, track.url),
-            child: const Icon(Icons.download_rounded, color: Color(0xFF6B7280), size: 24),
-          ),
+          ],
         ],
       ),
     );
@@ -405,6 +516,7 @@ class _BpmGraph extends StatelessWidget {
         baseBpm: baseBpm,
         playPosition: playPosition,
       ),
+      child: const SizedBox.expand(),
     );
   }
 }
@@ -433,13 +545,11 @@ class _BpmGraphPainter extends CustomPainter {
     final maxBpm = allBpms.reduce((a, b) => a > b ? a : b) + 5;
     final bpmRange = maxBpm - minBpm;
 
-    // Y축 레이블 영역
     const leftPad = 36.0;
     const bottomPad = 20.0;
     final graphW = size.width - leftPad;
     final graphH = size.height - bottomPad;
 
-    // Y축 가이드라인 + 레이블
     final gridPaint = Paint()..color = _grey..strokeWidth = 1;
     final labelStyle = const TextStyle(fontSize: 10, color: Color(0xFF9CA3AF));
 
@@ -450,14 +560,12 @@ class _BpmGraphPainter extends CustomPainter {
       _drawText(canvas, bpmVal.toInt().toString(), Offset(0, y - 6), labelStyle);
     }
 
-    // X축 레이블
     final xLabels = _generateTimeLabels(maxTime);
     for (final t in xLabels) {
       final x = leftPad + graphW * (t / maxTime);
       _drawText(canvas, _formatTime(t), Offset(x - 10, graphH + 4), labelStyle);
     }
 
-    // 기준선 (baseBpm)
     final baseY = graphH - (graphH * (baseBpm - minBpm) / bpmRange);
     final basePaint = Paint()
       ..color = _grey
@@ -470,7 +578,6 @@ class _BpmGraphPainter extends CustomPainter {
     }
     canvas.drawPath(dashPath, basePaint);
 
-    // BPM 곡선
     final linePaint = Paint()
       ..color = _purple
       ..strokeWidth = 2
@@ -486,29 +593,24 @@ class _BpmGraphPainter extends CustomPainter {
     }
     canvas.drawPath(path, linePaint);
 
-    // 현재 재생 위치 점 + 세로선
     final curTime = playPosition * maxTime;
     final curX = leftPad + graphW * playPosition;
-    // 가장 가까운 BPM 찾기
     final curBpmPoint = bpmData.reduce((a, b) =>
         (a.time - curTime).abs() < (b.time - curTime).abs() ? a : b);
     final curY = graphH - (graphH * (curBpmPoint.bpm - minBpm) / bpmRange);
 
-    // 세로선
     canvas.drawLine(
       Offset(curX, 0),
       Offset(curX, graphH),
       Paint()..color = _grey..strokeWidth = 1,
     );
 
-    // 점
     canvas.drawCircle(
       Offset(curX, curY),
       6,
       Paint()..color = _purple,
     );
 
-    // 현재 BPM 레이블
     _drawText(
       canvas,
       '현재 ${curBpmPoint.bpm.toInt()}',

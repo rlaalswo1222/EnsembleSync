@@ -11,6 +11,7 @@ enum WsEventType {
   userLeft,
   userList,
   scoreUploaded,
+  bpmAnalyzed,
   trackSeparated,
   separationProgress,
   unknown,
@@ -77,6 +78,7 @@ class WebSocketService {
       case 'user_left':       return WsEventType.userLeft;
       case 'user_list':       return WsEventType.userList;
       case 'score_uploaded':  return WsEventType.scoreUploaded;
+      case 'bpm_analyzed':    return WsEventType.bpmAnalyzed;
       case 'track_separated':     return WsEventType.trackSeparated;
       case 'separation_progress': return WsEventType.separationProgress;
       default:                    return WsEventType.unknown;

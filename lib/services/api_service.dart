@@ -94,17 +94,15 @@ class ApiService {
   }
 
   // ── 음원 파일 업로드 ───────────────────────────────────────
-  /// POST /api/audio/{room_id}/upload
-  /// purpose: 'bpm' | 'pitch' | 'track'
   Future<Map<String, dynamic>> uploadAudio({
     required String roomId,
     required Uint8List bytes,
     required String filename,
     required String purpose,
   }) async {
-    final uri = Uri.parse('${ApiConstants.baseUrl}/api/audio/$roomId/upload');
+    final uri = Uri.parse('${ApiConstants.baseUrl}/api/audio/$roomId/upload')
+        .replace(queryParameters: {'purpose': purpose});
     final request = http.MultipartRequest('POST', uri)
-      ..fields['purpose'] = purpose
       ..files.add(http.MultipartFile.fromBytes('file', bytes, filename: filename));
     final streamed = await request.send();
     final response = await http.Response.fromStream(streamed);
@@ -114,7 +112,6 @@ class ApiService {
   }
 
   // ── 트랙 분리 요청 ─────────────────────────────────────────
-  /// POST /api/track/separate
   Future<Map<String, dynamic>> requestTrackSeparation({
     required String roomId,
     required Uint8List bytes,
@@ -131,12 +128,24 @@ class ApiService {
     throw ApiException(data['status'] as int, data['message'] as String? ?? '트랙 분리 요청 실패');
   }
 
+  // ── BPM 분석 시작 ─────────────────────────────────────────
+  Future<Map<String, dynamic>> startBpmAnalysis({
+    required String roomId,
+    required String audioFileId,
+  }) async {
+    final uri = Uri.parse('${ApiConstants.baseUrl}/api/analysis/$roomId/start')
+        .replace(queryParameters: {'audio_file_id': audioFileId, 'job_type': 'bpm'});
+    final response = await _client.post(uri, headers: _headers)
+        .timeout(const Duration(seconds: 10));
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      if (data['status'] == 200) return data;
+      throw ApiException(data['status'] as int, data['message'] as String? ?? 'BPM 분석 시작 실패');
+    }
+    throw ApiException(response.statusCode, _parseError(response.body));
+  }
+
   // ── BPM 분석 결과 조회 ─────────────────────────────────────
-  /// GET /api/bpm/{job_id}/result
-  /// Response: { "status": 200, "job_id": "...", "base_bpm": 120.0,
-  ///   "avg_bpm": 119.0, "max_bpm": 122.0, "min_bpm": 115.0,
-  ///   "bpm_data": [{"time": 0.0, "bpm": 120.0}, ...],
-  ///   "deviation_sections": [{"start": 0.1, "end": 0.2, "bpm": 115.0}, ...] }
   Future<Map<String, dynamic>> getBpmResult(String jobId) async {
     final uri = Uri.parse('${ApiConstants.baseUrl}/api/bpm/$jobId/result');
     final response = await _client.get(uri, headers: _headers).timeout(const Duration(seconds: 10));
