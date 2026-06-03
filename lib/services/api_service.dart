@@ -157,6 +157,12 @@ class ApiService {
     throw ApiException(response.statusCode, _parseError(response.body));
   }
 
+  // ── 분석 작업 취소 ────────────────────────────────────────
+  Future<void> cancelAnalysis(String jobId) async {
+    final uri = Uri.parse('${ApiConstants.baseUrl}/api/analysis/$jobId/cancel');
+    await _client.post(uri, headers: _headers).timeout(const Duration(seconds: 5));
+  }
+
   // ── 트랙 다운로드 URL 반환 ─────────────────────────────────
   String getTrackDownloadUrl(String jobId, String trackType) {
     return '${ApiConstants.baseUrl}/api/track/$jobId/download/$trackType';

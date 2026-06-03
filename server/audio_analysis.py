@@ -81,6 +81,44 @@ async def start_analysis(room_id: str, audio_file_id: str, job_type: str):
         if conn:
             conn.close()
 
+@router.post("/api/analysis/{job_id}/cancel")
+async def cancel_analysis(job_id: str):
+    conn = None
+    try:
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        cur.execute(
+            "SELECT celery_task_id, status FROM analysis_job WHERE id = %s",
+            (job_id,)
+        )
+        job = cur.fetchone()
+        if not job:
+            return {"status": 404, "message": "존재하지 않는 작업입니다."}
+        if job['status'] in ('done', 'failed', 'cancelled'):
+            return {"status": 400, "message": f"취소할 수 없는 상태입니다: {job['status']}"}
+
+        celery_task_id = job['celery_task_id']
+        if celery_task_id:
+            celery_app.control.revoke(celery_task_id, terminate=True, signal='SIGKILL')
+
+        cur.execute(
+            "UPDATE analysis_job SET status = 'cancelled' WHERE id = %s",
+            (job_id,)
+        )
+        conn.commit()
+        cur.close()
+
+        return {"status": 200, "message": "작업이 취소되었습니다."}
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        return {"status": 500, "message": f"취소 중 오류가 발생했습니다: {str(e)}"}
+    finally:
+        if conn:
+            conn.close()
+
+
 @router.get("/api/analysis/{job_id}/status")
 async def get_analysis_status(job_id: str):
     """
