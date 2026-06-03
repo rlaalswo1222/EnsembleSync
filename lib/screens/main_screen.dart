@@ -1,7 +1,9 @@
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:pdfx/pdfx.dart';
+import 'package:image_cropper/image_cropper.dart';
 import '../services/websocket_service.dart';
 import '../services/api_service.dart';
 import '../models/bpm_result.dart';
@@ -15,6 +17,8 @@ class Stroke {
   final Color color;
   final double width;
   final bool isEraser;
+  final bool isHighlighter;
+  final String? text;
 
   const Stroke({
     required this.id,
@@ -22,10 +26,12 @@ class Stroke {
     required this.color,
     required this.width,
     this.isEraser = false,
+    this.isHighlighter = false,
+    this.text,
   });
 }
 
-enum DrawTool { pen, eraser, color }
+enum DrawTool { pen, eraser, highlighter, text }
 
 class MainScreen extends StatefulWidget {
   final String nickname;
@@ -48,8 +54,13 @@ class _MainScreenState extends State<MainScreen> {
 
   late final WebSocketService _ws;
 
-  // ── 필기 상태 ────────────────────────────────────────────────
-  final List<Stroke> _strokes = [];
+  // ── 필기 상태 (PDF 페이지별 분리) ────────────────────────────
+  final Map<int, List<Stroke>> _pageStrokes = {};
+  List<Stroke> _strokesForPage(int page) {
+    _pageStrokes[page] ??= [];
+    return _pageStrokes[page]!;
+  }
+  List<Stroke> get _strokes => _strokesForPage(_currentPdfPage);
   Stroke? _currentStroke;
   DrawTool _tool = DrawTool.pen;
   Color _penColor = const Color(0xFF8B5CF6);
@@ -58,8 +69,18 @@ class _MainScreenState extends State<MainScreen> {
   // ── 참가자 ──────────────────────────────────────────────────
   final List<Map<String, dynamic>> _participants = [];
 
-  // ── 악보 이미지 ─────────────────────────────────────────────
+  // ── 악보 (이미지) ────────────────────────────────────────────
   Uint8List? _scoreImageBytes;
+
+  // ── 악보 (PDF) ───────────────────────────────────────────────
+  List<Uint8List> _pdfPages = [];
+  int _currentPdfPage = 0;
+  bool _isLoadingPdf = false;
+
+  bool get _isPdf => _pdfPages.isNotEmpty;
+
+  Uint8List? get _currentDisplayBytes =>
+      _isPdf ? _pdfPages[_currentPdfPage] : _scoreImageBytes;
 
   // ── 하단 탭 ─────────────────────────────────────────────────
   int _tabIndex = 0;
@@ -128,7 +149,7 @@ class _MainScreenState extends State<MainScreen> {
           if (id != null) setState(() => _strokes.removeWhere((s) => s.id == id));
           break;
         case WsEventType.clear:
-          setState(() => _strokes.clear());
+          setState(() => _pageStrokes.clear());
           break;
         case WsEventType.userJoined:
           final name = event.data['user_name'] as String?;
@@ -155,8 +176,6 @@ class _MainScreenState extends State<MainScreen> {
           final fileUrl = event.data['file_url'] as String?;
           if (fileUrl != null) _loadScoreFromUrl(fileUrl);
           break;
-
-        // ── 트랙 분리 완료 ───────────────────────────────────
         case WsEventType.trackSeparated:
           final payload = event.data['payload'] as Map<String, dynamic>? ?? {};
           final tracksJson = payload['tracks'] as Map<String, dynamic>? ?? {};
@@ -172,8 +191,6 @@ class _MainScreenState extends State<MainScreen> {
           ];
           if (mounted) setState(() => _tracks = results);
           break;
-
-        // ── BPM 분석 완료 ────────────────────────────────────
         case WsEventType.bpmAnalyzed:
           final jobId = event.data['job_id'] as String?;
           if (jobId != null && mounted) {
@@ -181,10 +198,6 @@ class _MainScreenState extends State<MainScreen> {
             _loadBpmResult(jobId);
           }
           break;
-
-        case WsEventType.unknown:
-          break;
-
         default:
           break;
       }
@@ -195,17 +208,83 @@ class _MainScreenState extends State<MainScreen> {
   Future<void> _loadBpmResult(String jobId) async {
     try {
       final data = await ApiService().getBpmResult(jobId);
-      if (mounted) {
-        setState(() => _bpmResult = BpmResult.fromJson(data));
+      if (mounted) setState(() => _bpmResult = BpmResult.fromJson(data));
+    } catch (_) {}
+  }
+
+  // ── 악보 URL 다운로드 및 표시 ──────────────────────────────────
+  Future<void> _loadScoreFromUrl(String fileUrl) async {
+    try {
+      final bytes = await ApiService().downloadScore(fileUrl);
+      if (!mounted) return;
+      if (fileUrl.toLowerCase().endsWith('.pdf')) {
+        await _loadPdfPages(bytes);
+      } else {
+        setState(() {
+          _scoreImageBytes = bytes;
+          _pdfPages = [];
+          _currentPdfPage = 0;
+          _pageStrokes.clear();
+        });
       }
     } catch (_) {}
   }
 
-  Future<void> _loadScoreFromUrl(String fileUrl) async {
+  // ── PDF 페이지 렌더링 ─────────────────────────────────────────
+  Future<void> _loadPdfPages(Uint8List bytes) async {
+    if (!mounted) return;
+    setState(() => _isLoadingPdf = true);
     try {
-      final bytes = await ApiService().downloadScore(fileUrl);
-      if (mounted) setState(() => _scoreImageBytes = bytes);
-    } catch (_) {}
+      final document = await PdfDocument.openData(bytes);
+      final pages = <Uint8List>[];
+      for (int i = 1; i <= document.pagesCount; i++) {
+        final page = await document.getPage(i);
+        final pageImage = await page.render(
+          width: page.width * 2,
+          height: page.height * 2,
+          format: PdfPageImageFormat.jpeg,
+          backgroundColor: '#ffffff',
+        );
+        if (pageImage != null) pages.add(pageImage.bytes);
+        await page.close();
+      }
+      await document.close();
+      if (mounted) {
+        setState(() {
+          _pdfPages = pages;
+          _currentPdfPage = 0;
+          _scoreImageBytes = null;
+          _isLoadingPdf = false;
+          _pageStrokes.clear();
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoadingPdf = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('PDF 로드 실패: $e'), backgroundColor: Colors.redAccent),
+        );
+      }
+    }
+  }
+
+  // ── 이미지 크롭 ──────────────────────────────────────────────
+  Future<Uint8List?> _cropImage(String imagePath) async {
+    final croppedFile = await ImageCropper().cropImage(
+      sourcePath: imagePath,
+      uiSettings: [
+        AndroidUiSettings(
+          toolbarTitle: '영역 선택',
+          toolbarColor: _purple,
+          toolbarWidgetColor: Colors.white,
+          initAspectRatio: CropAspectRatioPreset.original,
+          lockAspectRatio: false,
+          hideBottomControls: false,
+        ),
+      ],
+    );
+    if (croppedFile == null) return null;
+    return await croppedFile.readAsBytes();
   }
 
   Future<void> _uploadScore(Uint8List bytes, String filename) async {
@@ -223,7 +302,11 @@ class _MainScreenState extends State<MainScreen> {
 
   Stroke _strokeFromJson(Map<String, dynamic> json) {
     final p = json['payload'] as Map<String, dynamic>? ?? json;
-    final isEraser = (p['tool_type'] as String?) == 'eraser';
+    final toolType = p['tool_type'] as String? ?? 'pen';
+    final isEraser = toolType == 'eraser';
+    final isHighlighter = toolType == 'highlighter';
+    final isText = toolType == 'text';
+    final text = p['text'] as String?;
     final pts = (p['stroke_data'] as List<dynamic>).map((pt) {
       return Offset((pt['x'] as num).toDouble(), (pt['y'] as num).toDouble());
     }).toList();
@@ -232,8 +315,10 @@ class _MainScreenState extends State<MainScreen> {
       points: pts,
       color: Color(int.parse(
           (p['color'] as String? ?? '#8B5CF6').replaceFirst('#', ''), radix: 16) | 0xFF000000),
-      width: isEraser ? 20.0 : 3.0,
+      width: isEraser ? 20.0 : isHighlighter ? 18.0 : isText ? 14.0 : 3.0,
       isEraser: isEraser,
+      isHighlighter: isHighlighter,
+      text: text,
     );
   }
 
@@ -263,9 +348,15 @@ class _MainScreenState extends State<MainScreen> {
                 Navigator.pop(context);
                 final img = await ImagePicker().pickImage(source: ImageSource.camera);
                 if (img != null) {
-                  final bytes = await img.readAsBytes();
-                  setState(() => _scoreImageBytes = bytes);
-                  await _uploadScore(bytes, img.name);
+                  final croppedBytes = await _cropImage(img.path);
+                  if (croppedBytes != null && mounted) {
+                    setState(() {
+                      _scoreImageBytes = croppedBytes;
+                      _pdfPages = [];
+                      _pageStrokes.clear();
+                    });
+                    await _uploadScore(croppedBytes, img.name);
+                  }
                 }
               },
             ),
@@ -276,9 +367,15 @@ class _MainScreenState extends State<MainScreen> {
                 Navigator.pop(context);
                 final img = await ImagePicker().pickImage(source: ImageSource.gallery);
                 if (img != null) {
-                  final bytes = await img.readAsBytes();
-                  setState(() => _scoreImageBytes = bytes);
-                  await _uploadScore(bytes, img.name);
+                  final croppedBytes = await _cropImage(img.path);
+                  if (croppedBytes != null && mounted) {
+                    setState(() {
+                      _scoreImageBytes = croppedBytes;
+                      _pdfPages = [];
+                      _pageStrokes.clear();
+                    });
+                    await _uploadScore(croppedBytes, img.name);
+                  }
                 }
               },
             ),
@@ -295,8 +392,8 @@ class _MainScreenState extends State<MainScreen> {
                 if (result != null && result.files.first.bytes != null) {
                   final bytes = result.files.first.bytes!;
                   final filename = result.files.first.name;
-                  setState(() => _scoreImageBytes = bytes);
                   await _uploadScore(bytes, filename);
+                  await _loadPdfPages(bytes);
                 }
               },
             ),
@@ -361,14 +458,16 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   void _onPanStart(DragStartDetails d, Size canvasSize) {
+    if (_tool == DrawTool.text) return;
     final norm = _normalize(d.localPosition, canvasSize);
     final id = '${widget.nickname}_${DateTime.now().millisecondsSinceEpoch}';
     setState(() {
       _currentStroke = Stroke(
         id: id, points: [norm],
         color: _tool == DrawTool.eraser ? Colors.white : _penColor,
-        width: _tool == DrawTool.eraser ? 20.0 : _penWidth,
+        width: _tool == DrawTool.eraser ? 20.0 : _tool == DrawTool.highlighter ? 18.0 : _penWidth,
         isEraser: _tool == DrawTool.eraser,
+        isHighlighter: _tool == DrawTool.highlighter,
       );
     });
   }
@@ -383,6 +482,7 @@ class _MainScreenState extends State<MainScreen> {
         color: _currentStroke!.color,
         width: _currentStroke!.width,
         isEraser: _currentStroke!.isEraser,
+        isHighlighter: _currentStroke!.isHighlighter,
       );
     });
   }
@@ -391,12 +491,14 @@ class _MainScreenState extends State<MainScreen> {
     if (_currentStroke == null) return;
     final stroke = _currentStroke!;
     setState(() { _strokes.add(stroke); _currentStroke = null; });
+    final toolType = stroke.isEraser ? 'eraser' : stroke.isHighlighter ? 'highlighter' : stroke.text != null ? 'text' : 'pen';
     _ws.sendDraw({
       'annotation_id': stroke.id,
       'member_id': widget.nickname,
-      'tool_type': stroke.isEraser ? 'eraser' : 'pen',
+      'tool_type': toolType,
       'color': '#${stroke.color.toARGB32().toRadixString(16).padLeft(8, '0').substring(2)}',
       'stroke_data': stroke.points.map((p) => {'x': p.dx, 'y': p.dy}).toList(),
+      if (stroke.text != null) 'text': stroke.text,
       'is_deleted': false,
       'created_at': DateTime.now().toIso8601String(),
     });
@@ -456,9 +558,17 @@ class _MainScreenState extends State<MainScreen> {
               ),
               const SizedBox(width: 6),
               GestureDetector(
-                onTap: () => ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('방 코드가 복사되었습니다'), duration: Duration(seconds: 1)),
-                ),
+                onTap: () async {
+                  await Clipboard.setData(ClipboardData(text: widget.roomCode));
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('방 코드가 복사되었습니다'),
+                        duration: Duration(seconds: 1),
+                      ),
+                    );
+                  }
+                },
                 child: const Icon(Icons.copy_rounded, size: 16, color: Color(0xFF9CA3AF)),
               ),
             ],
@@ -509,6 +619,13 @@ class _MainScreenState extends State<MainScreen> {
           ),
           const SizedBox(width: 4),
           _ToolButton(
+            icon: Icons.highlight_rounded,
+            selected: _tool == DrawTool.highlighter,
+            color: const Color(0xFFF59E0B),
+            onTap: () => setState(() => _tool = DrawTool.highlighter),
+          ),
+          const SizedBox(width: 4),
+          _ToolButton(
             icon: Icons.auto_fix_normal_rounded,
             selected: _tool == DrawTool.eraser,
             color: _purple,
@@ -524,6 +641,13 @@ class _MainScreenState extends State<MainScreen> {
                 border: Border.all(color: const Color(0xFFE5E7EB), width: 2),
               ),
             ),
+          ),
+          const Spacer(),
+          _ToolButton(
+            icon: Icons.upload_rounded,
+            selected: false,
+            color: _purple,
+            onTap: _showUploadSheet,
           ),
         ],
       ),
@@ -569,6 +693,29 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   Widget _buildScoreTab() {
+    if (_isLoadingPdf) {
+      return Padding(
+        padding: const EdgeInsets.all(12),
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFFE5E7EB)),
+          ),
+          child: const Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                CircularProgressIndicator(color: _purple),
+                SizedBox(height: 12),
+                Text('PDF 로딩 중...', style: TextStyle(color: Color(0xFF6B7280), fontSize: 13)),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     return Padding(
       padding: const EdgeInsets.all(12),
       child: Container(
@@ -578,7 +725,7 @@ class _MainScreenState extends State<MainScreen> {
           border: Border.all(color: const Color(0xFFE5E7EB)),
         ),
         clipBehavior: Clip.hardEdge,
-        child: _scoreImageBytes == null ? _buildEmptyScore() : _buildCanvas(),
+        child: _currentDisplayBytes == null ? _buildEmptyScore() : _buildCanvas(),
       ),
     );
   }
@@ -613,6 +760,8 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   Widget _buildCanvas() {
+    final displayBytes = _currentDisplayBytes!;
+
     return LayoutBuilder(
       builder: (_, constraints) {
         final size = Size(constraints.maxWidth, constraints.maxHeight);
@@ -622,7 +771,7 @@ class _MainScreenState extends State<MainScreen> {
           onPanEnd: (_) => _onPanEnd(size),
           child: Stack(
             children: [
-              Positioned.fill(child: Image.memory(_scoreImageBytes!, fit: BoxFit.contain)),
+              Positioned.fill(child: Image.memory(displayBytes, fit: BoxFit.contain)),
               Positioned.fill(
                 child: CustomPaint(
                   painter: _DrawingPainter(
@@ -632,9 +781,79 @@ class _MainScreenState extends State<MainScreen> {
                   ),
                 ),
               ),
+
+              // ── PDF 페이지 이동 (좌/우 탭존) ─────────────────────
+              if (_isPdf) ...[
+                // 이전 페이지 (왼쪽)
+                Positioned(
+                  left: 0, top: 0, bottom: 0, width: 56,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.translucent,
+                    onTap: _currentPdfPage > 0
+                        ? () => setState(() => _currentPdfPage--)
+                        : null,
+                    child: _currentPdfPage > 0
+                        ? Align(
+                            alignment: Alignment.centerLeft,
+                            child: Container(
+                              margin: const EdgeInsets.only(left: 8),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.35),
+                                shape: BoxShape.circle,
+                              ),
+                              padding: const EdgeInsets.all(6),
+                              child: const Icon(Icons.chevron_left, color: Colors.white, size: 22),
+                            ),
+                          )
+                        : null,
+                  ),
+                ),
+                // 다음 페이지 (오른쪽)
+                Positioned(
+                  right: 0, top: 0, bottom: 0, width: 56,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.translucent,
+                    onTap: _currentPdfPage < _pdfPages.length - 1
+                        ? () => setState(() => _currentPdfPage++)
+                        : null,
+                    child: _currentPdfPage < _pdfPages.length - 1
+                        ? Align(
+                            alignment: Alignment.centerRight,
+                            child: Container(
+                              margin: const EdgeInsets.only(right: 8),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.35),
+                                shape: BoxShape.circle,
+                              ),
+                              padding: const EdgeInsets.all(6),
+                              child: const Icon(Icons.chevron_right, color: Colors.white, size: 22),
+                            ),
+                          )
+                        : null,
+                  ),
+                ),
+                // 페이지 카운터
+                Positioned(
+                  bottom: 10, left: 0, right: 0,
+                  child: Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.4),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        '${_currentPdfPage + 1} / ${_pdfPages.length}',
+                        style: const TextStyle(
+                            color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ],
-          ),
-        );
+          ),         // Stack
+        );           // GestureDetector
       },
     );
   }
@@ -695,7 +914,7 @@ class _ToolButton extends StatelessWidget {
       child: Container(
         width: 32, height: 32,
         decoration: BoxDecoration(
-          color: selected ? color.withOpacity(0.12) : Colors.transparent,
+          color: selected ? color.withValues(alpha: 0.12) : Colors.transparent,
           borderRadius: BorderRadius.circular(8),
         ),
         child: Icon(icon, size: 18, color: selected ? color : const Color(0xFF9CA3AF)),
@@ -752,10 +971,40 @@ class _DrawingPainter extends CustomPainter {
 
   void _drawStroke(Canvas canvas, Size size, Stroke stroke) {
     if (stroke.points.isEmpty) return;
+
+    // 텍스트 어노테이션
+    if (stroke.text != null) {
+      final pos = Offset(
+        stroke.points.first.dx * size.width,
+        stroke.points.first.dy * size.height,
+      );
+      final tp = TextPainter(
+        text: TextSpan(
+          text: stroke.text,
+          style: TextStyle(
+            color: stroke.color,
+            fontSize: stroke.width,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout(maxWidth: size.width - pos.dx);
+      canvas.drawRect(
+        Rect.fromLTWH(pos.dx - 3, pos.dy - 2, tp.width + 6, tp.height + 4),
+        Paint()..color = stroke.color.withValues(alpha: 0.12),
+      );
+      tp.paint(canvas, pos);
+      return;
+    }
+
     final paint = Paint()
-      ..color = stroke.isEraser ? Colors.white : stroke.color
+      ..color = stroke.isEraser
+          ? Colors.white
+          : stroke.isHighlighter
+              ? stroke.color.withValues(alpha: 0.28)
+              : stroke.color
       ..strokeWidth = stroke.width
-      ..strokeCap = StrokeCap.round
+      ..strokeCap = stroke.isHighlighter ? StrokeCap.square : StrokeCap.round
       ..strokeJoin = StrokeJoin.round
       ..style = PaintingStyle.stroke
       ..blendMode = stroke.isEraser ? BlendMode.clear : BlendMode.srcOver;

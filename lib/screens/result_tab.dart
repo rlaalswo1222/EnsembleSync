@@ -1,7 +1,9 @@
+import 'dart:io';
 import 'dart:typed_data';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
+import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
 import '../models/bpm_result.dart';
 import '../services/api_service.dart';
 import 'analysis_tab.dart';
@@ -437,7 +439,7 @@ class _ResultTabState extends State<ResultTab> {
               ),
               const SizedBox(width: 10),
               GestureDetector(
-                onTap: () => _launchUrl(context, track.url),
+                onTap: () => _downloadTrackFile(context, track.url, track.label),
                 child: const Icon(Icons.download_rounded, color: Color(0xFF6B7280), size: 24),
               ),
             ],
@@ -478,14 +480,38 @@ class _ResultTabState extends State<ResultTab> {
     );
   }
 
-  Future<void> _launchUrl(BuildContext context, String url) async {
-    final uri = Uri.parse(url);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('열 수 없습니다')),
-      );
+  Future<void> _downloadTrackFile(BuildContext context, String url, String label) async {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('다운로드 중...'), duration: Duration(seconds: 1)),
+    );
+    try {
+      final response = await http.get(Uri.parse(url));
+      if (response.statusCode != 200) throw Exception('서버 오류 ${response.statusCode}');
+
+      final filename = '$label.wav';
+      String savePath;
+
+      const downloadsDir = '/storage/emulated/0/Download';
+      if (Directory(downloadsDir).existsSync()) {
+        savePath = '$downloadsDir/$filename';
+      } else {
+        final dir = await getApplicationDocumentsDirectory();
+        savePath = '${dir.path}/$filename';
+      }
+
+      await File(savePath).writeAsBytes(response.bodyBytes);
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('저장 완료: $filename')),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('다운로드 실패: $e'), backgroundColor: Colors.redAccent),
+        );
+      }
     }
   }
 
