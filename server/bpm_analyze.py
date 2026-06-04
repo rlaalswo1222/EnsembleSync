@@ -37,9 +37,8 @@ def bpm_analysis_task(self, job_id: str, audio_file_id: str):
             raise Exception("드럼 트랙을 찾을 수 없습니다. 트랙 분리가 먼저 완료되어야 합니다.")
 
         file_url = row[0]
-        # URL → 로컬 경로: http://3.106.49.28:8000/uploads/... → /home/ubuntu/uploads/...
         url_path = urlparse(file_url).path
-        local_audio_path = f"/home/ubuntu{url_path}"
+        local_audio_path = os.path.join(os.getcwd(), url_path.lstrip("/"))
 
         if not os.path.exists(local_audio_path):
             raise Exception(f"드럼 트랙 파일이 서버에 존재하지 않습니다: {local_audio_path}")

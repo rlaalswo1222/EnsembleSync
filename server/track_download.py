@@ -51,7 +51,11 @@ async def request_track_separation(
         )
         conn.commit()
 
-        task = celery_app.send_task("separate_audio_task", args=[file_path, room_id, job_id])
+        task = celery_app.send_task(
+            "separate_audio_task",
+            args=[file_path, room_id, job_id],
+            queue="separation",
+        )
         cur.execute("UPDATE analysis_job SET celery_task_id = %s WHERE id = %s", (task.id, job_id))
         conn.commit()
         cur.close()

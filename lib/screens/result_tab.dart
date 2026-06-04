@@ -64,29 +64,51 @@ class _ResultTabState extends State<ResultTab> {
       _loadBpmResult();
     }
     _player.onPositionChanged.listen((p) {
-      if (mounted) setState(() => _position = p);
+      if (mounted) {
+        setState(() => _position = p);
+      }
     });
     _player.onDurationChanged.listen((d) {
-      if (mounted) setState(() => _duration = d);
+      if (mounted) {
+        setState(() => _duration = d);
+      }
     });
     _player.onPlayerStateChanged.listen((s) {
-      if (mounted) setState(() => _isPlaying = s == PlayerState.playing);
+      if (mounted) {
+        setState(() => _isPlaying = s == PlayerState.playing);
+      }
     });
     _player.onPlayerComplete.listen((_) {
-      if (mounted) setState(() { _position = Duration.zero; _sourceLoaded = false; });
+      if (mounted) {
+        setState(() {
+          _position = Duration.zero;
+          _sourceLoaded = false;
+        });
+      }
     });
 
     _trackPlayer.onPositionChanged.listen((p) {
-      if (mounted) setState(() => _trackPosition = p);
+      if (mounted) {
+        setState(() => _trackPosition = p);
+      }
     });
     _trackPlayer.onDurationChanged.listen((d) {
-      if (mounted) setState(() => _trackDuration = d);
+      if (mounted) {
+        setState(() => _trackDuration = d);
+      }
     });
     _trackPlayer.onPlayerStateChanged.listen((s) {
-      if (mounted) setState(() => _trackIsPlaying = s == PlayerState.playing);
+      if (mounted) {
+        setState(() => _trackIsPlaying = s == PlayerState.playing);
+      }
     });
     _trackPlayer.onPlayerComplete.listen((_) {
-      if (mounted) setState(() { _trackPosition = Duration.zero; _trackIsPlaying = false; });
+      if (mounted) {
+        setState(() {
+          _trackPosition = Duration.zero;
+          _trackIsPlaying = false;
+        });
+      }
     });
   }
 
@@ -113,9 +135,14 @@ class _ResultTabState extends State<ResultTab> {
     setState(() => _isLoading = true);
     try {
       final data = await ApiService().getBpmResult(widget.bpmJobId!);
-      if (mounted) setState(() => _bpmResult = BpmResult.fromJson(data));
-    } catch (_) {} finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _bpmResult = BpmResult.fromJson(data));
+      }
+    } catch (_) {
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -156,10 +183,18 @@ class _ResultTabState extends State<ResultTab> {
   }
 
   ResultMode get _mode {
-    if (widget.preferredMode == ResultMode.track && widget.tracks.isNotEmpty) return ResultMode.track;
-    if (widget.preferredMode == ResultMode.bpm && _bpmResult != null) return ResultMode.bpm;
-    if (_bpmResult != null) return ResultMode.bpm;
-    if (widget.tracks.isNotEmpty) return ResultMode.track;
+    if (widget.preferredMode == ResultMode.track && widget.tracks.isNotEmpty) {
+      return ResultMode.track;
+    }
+    if (widget.preferredMode == ResultMode.bpm && _bpmResult != null) {
+      return ResultMode.bpm;
+    }
+    if (_bpmResult != null) {
+      return ResultMode.bpm;
+    }
+    if (widget.tracks.isNotEmpty) {
+      return ResultMode.track;
+    }
     return ResultMode.empty;
   }
 
@@ -187,7 +222,8 @@ class _ResultTabState extends State<ResultTab> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.hourglass_empty_rounded, size: 48, color: Color(0xFFD1D5DB)),
+          Icon(Icons.hourglass_empty_rounded,
+              size: 48, color: Color(0xFFD1D5DB)),
           SizedBox(height: 16),
           Text('분석 후 결과가 표시됩니다',
               style: TextStyle(fontSize: 14, color: Color(0xFF9CA3AF))),
@@ -217,7 +253,6 @@ class _ResultTabState extends State<ResultTab> {
                 style: const TextStyle(fontSize: 12, color: Color(0xFF9CA3AF))),
           ],
           const SizedBox(height: 16),
-
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(16),
@@ -254,18 +289,29 @@ class _ResultTabState extends State<ResultTab> {
                 const SizedBox(height: 12),
                 Row(
                   children: [
-                    _StatChip(label: '평균', value: result.avgBpm.toInt().toString(), color: const Color(0xFFEDE9FE), textColor: _purple),
+                    _StatChip(
+                        label: '평균',
+                        value: result.avgBpm.toInt().toString(),
+                        color: const Color(0xFFEDE9FE),
+                        textColor: _purple),
                     const SizedBox(width: 8),
-                    _StatChip(label: '최고', value: result.maxBpm.toInt().toString(), color: const Color(0xFFFFEDED), textColor: _red),
+                    _StatChip(
+                        label: '최고',
+                        value: result.maxBpm.toInt().toString(),
+                        color: const Color(0xFFFFEDED),
+                        textColor: _red),
                     const SizedBox(width: 8),
-                    _StatChip(label: '최저', value: result.minBpm.toInt().toString(), color: const Color(0xFFEFF6FF), textColor: _blue),
+                    _StatChip(
+                        label: '최저',
+                        value: result.minBpm.toInt().toString(),
+                        color: const Color(0xFFEFF6FF),
+                        textColor: _blue),
                   ],
                 ),
               ],
             ),
           ),
           const SizedBox(height: 12),
-
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(16),
@@ -278,7 +324,8 @@ class _ResultTabState extends State<ResultTab> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text('실시간 BPM',
-                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                    style:
+                        TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
                 const SizedBox(height: 12),
                 SizedBox(
                   height: 140,
@@ -289,7 +336,6 @@ class _ResultTabState extends State<ResultTab> {
                   ),
                 ),
                 const SizedBox(height: 16),
-
                 Row(
                   children: [
                     GestureDetector(
@@ -302,7 +348,9 @@ class _ResultTabState extends State<ResultTab> {
                           shape: BoxShape.circle,
                         ),
                         child: Icon(
-                          _isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                          _isPlaying
+                              ? Icons.pause_rounded
+                              : Icons.play_arrow_rounded,
                           color: Colors.white,
                           size: 20,
                         ),
@@ -313,8 +361,10 @@ class _ResultTabState extends State<ResultTab> {
                       child: SliderTheme(
                         data: SliderTheme.of(context).copyWith(
                           trackHeight: 4,
-                          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
-                          overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+                          thumbShape: const RoundSliderThumbShape(
+                              enabledThumbRadius: 8),
+                          overlayShape:
+                              const RoundSliderOverlayShape(overlayRadius: 14),
                           activeTrackColor: _purple,
                           inactiveTrackColor: const Color(0xFFE5E7EB),
                           thumbColor: _purple,
@@ -324,7 +374,8 @@ class _ResultTabState extends State<ResultTab> {
                           onChanged: _duration.inMilliseconds > 0
                               ? (v) {
                                   final target = Duration(
-                                    milliseconds: (v * _duration.inMilliseconds).round(),
+                                    milliseconds:
+                                        (v * _duration.inMilliseconds).round(),
                                   );
                                   _player.seek(target);
                                 }
@@ -346,7 +397,6 @@ class _ResultTabState extends State<ResultTab> {
             ),
           ),
           const SizedBox(height: 12),
-
           if (result.deviationSections.isNotEmpty) ...[
             Container(
               width: double.infinity,
@@ -360,7 +410,8 @@ class _ResultTabState extends State<ResultTab> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text('템포 변화 구간',
-                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                      style:
+                          TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
                   const SizedBox(height: 12),
                   ...result.deviationSections.map(
                     (s) => _DeviationRow(section: s, baseBpm: result.baseBpm),
@@ -406,7 +457,9 @@ class _ResultTabState extends State<ResultTab> {
         color: const Color(0xFFF9F7FF),
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
-          color: isActive ? _purple.withValues(alpha: 0.4) : const Color(0xFFE5E7EB),
+          color: isActive
+              ? _purple.withValues(alpha: 0.4)
+              : const Color(0xFFE5E7EB),
         ),
       ),
       child: Column(
@@ -414,31 +467,37 @@ class _ResultTabState extends State<ResultTab> {
           Row(
             children: [
               Container(
-                width: 36, height: 36,
+                width: 36,
+                height: 36,
                 decoration: const BoxDecoration(
-                  color: Color(0xFFEDE9FE), shape: BoxShape.circle),
+                    color: Color(0xFFEDE9FE), shape: BoxShape.circle),
                 child: Icon(track.icon, color: _purple, size: 18),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: Text(track.label,
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                    style: const TextStyle(
+                        fontSize: 16, fontWeight: FontWeight.w600)),
               ),
               GestureDetector(
                 onTap: () => _playTrackAudio(track.url),
                 child: Container(
-                  width: 36, height: 36,
-                  decoration: const BoxDecoration(color: _purple, shape: BoxShape.circle),
+                  width: 36,
+                  height: 36,
+                  decoration: const BoxDecoration(
+                      color: _purple, shape: BoxShape.circle),
                   child: Icon(
                     isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                    color: Colors.white, size: 20,
+                    color: Colors.white,
+                    size: 20,
                   ),
                 ),
               ),
               const SizedBox(width: 10),
               GestureDetector(
                 onTap: () => _launchUrl(context, track.url),
-                child: const Icon(Icons.download_rounded, color: Color(0xFF6B7280), size: 24),
+                child: const Icon(Icons.download_rounded,
+                    color: Color(0xFF6B7280), size: 24),
               ),
             ],
           ),
@@ -450,8 +509,10 @@ class _ResultTabState extends State<ResultTab> {
                   child: SliderTheme(
                     data: SliderTheme.of(context).copyWith(
                       trackHeight: 4,
-                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
-                      overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
+                      thumbShape:
+                          const RoundSliderThumbShape(enabledThumbRadius: 7),
+                      overlayShape:
+                          const RoundSliderOverlayShape(overlayRadius: 12),
                       activeTrackColor: _purple,
                       inactiveTrackColor: const Color(0xFFE5E7EB),
                       thumbColor: _purple,
@@ -460,7 +521,8 @@ class _ResultTabState extends State<ResultTab> {
                       value: _trackPlayPosition,
                       onChanged: _trackDuration.inMilliseconds > 0
                           ? (v) => _trackPlayer.seek(Duration(
-                              milliseconds: (v * _trackDuration.inMilliseconds).round()))
+                              milliseconds:
+                                  (v * _trackDuration.inMilliseconds).round()))
                           : null,
                     ),
                   ),
@@ -468,7 +530,10 @@ class _ResultTabState extends State<ResultTab> {
                 const SizedBox(width: 6),
                 Text(
                   '${_formatTime(_trackPosition.inMilliseconds / 1000)} / ${_formatTime(_trackDuration.inMilliseconds / 1000)}',
-                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: _purple),
+                  style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: _purple),
                 ),
               ],
             ),
@@ -480,7 +545,9 @@ class _ResultTabState extends State<ResultTab> {
 
   Future<void> _launchUrl(BuildContext context, String url) async {
     final uri = Uri.parse(url);
-    if (await canLaunchUrl(uri)) {
+    final canLaunch = await canLaunchUrl(uri);
+    if (!context.mounted) return;
+    if (canLaunch) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -550,14 +617,17 @@ class _BpmGraphPainter extends CustomPainter {
     final graphW = size.width - leftPad;
     final graphH = size.height - bottomPad;
 
-    final gridPaint = Paint()..color = _grey..strokeWidth = 1;
-    final labelStyle = const TextStyle(fontSize: 10, color: Color(0xFF9CA3AF));
+    final gridPaint = Paint()
+      ..color = _grey
+      ..strokeWidth = 1;
+    const labelStyle = TextStyle(fontSize: 10, color: Color(0xFF9CA3AF));
 
     for (int i = 0; i <= 3; i++) {
       final bpmVal = minBpm + (bpmRange * i / 3);
       final y = graphH - (graphH * (bpmVal - minBpm) / bpmRange);
       canvas.drawLine(Offset(leftPad, y), Offset(size.width, y), gridPaint);
-      _drawText(canvas, bpmVal.toInt().toString(), Offset(0, y - 6), labelStyle);
+      _drawText(
+          canvas, bpmVal.toInt().toString(), Offset(0, y - 6), labelStyle);
     }
 
     final xLabels = _generateTimeLabels(maxTime);
@@ -589,20 +659,26 @@ class _BpmGraphPainter extends CustomPainter {
     for (int i = 0; i < bpmData.length; i++) {
       final x = leftPad + graphW * (bpmData[i].time / maxTime);
       final y = graphH - (graphH * (bpmData[i].bpm - minBpm) / bpmRange);
-      if (i == 0) path.moveTo(x, y); else path.lineTo(x, y);
+      if (i == 0) {
+        path.moveTo(x, y);
+      } else {
+        path.lineTo(x, y);
+      }
     }
     canvas.drawPath(path, linePaint);
 
     final curTime = playPosition * maxTime;
     final curX = leftPad + graphW * playPosition;
-    final curBpmPoint = bpmData.reduce((a, b) =>
-        (a.time - curTime).abs() < (b.time - curTime).abs() ? a : b);
+    final curBpmPoint = bpmData.reduce(
+        (a, b) => (a.time - curTime).abs() < (b.time - curTime).abs() ? a : b);
     final curY = graphH - (graphH * (curBpmPoint.bpm - minBpm) / bpmRange);
 
     canvas.drawLine(
       Offset(curX, 0),
       Offset(curX, graphH),
-      Paint()..color = _grey..strokeWidth = 1,
+      Paint()
+        ..color = _grey
+        ..strokeWidth = 1,
     );
 
     canvas.drawCircle(
@@ -628,9 +704,15 @@ class _BpmGraphPainter extends CustomPainter {
   }
 
   List<double> _generateTimeLabels(double maxTime) {
-    final interval = maxTime <= 60 ? 10.0 : maxTime <= 180 ? 30.0 : 60.0;
+    final interval = maxTime <= 60
+        ? 10.0
+        : maxTime <= 180
+            ? 30.0
+            : 60.0;
     final labels = <double>[];
-    for (double t = 0; t <= maxTime; t += interval) labels.add(t);
+    for (double t = 0; t <= maxTime; t += interval) {
+      labels.add(t);
+    }
     return labels;
   }
 
@@ -671,13 +753,12 @@ class _StatChip extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(label,
-              style: TextStyle(fontSize: 11, color: textColor.withOpacity(0.7))),
+              style: TextStyle(
+                  fontSize: 11, color: textColor.withValues(alpha: 0.7))),
           const SizedBox(width: 4),
           Text(value,
               style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.bold,
-                  color: textColor)),
+                  fontSize: 13, fontWeight: FontWeight.bold, color: textColor)),
         ],
       ),
     );
@@ -695,7 +776,8 @@ class _DeviationRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final diff = section.deviation(baseBpm);
     final isFaster = section.isFaster(baseBpm);
-    final diffColor = isFaster ? const Color(0xFFEF4444) : const Color(0xFF3B82F6);
+    final diffColor =
+        isFaster ? const Color(0xFFEF4444) : const Color(0xFF3B82F6);
     final diffText = isFaster ? '+${diff.toInt()} BPM' : '${diff.toInt()} BPM';
     final label = isFaster ? '빨라짐' : '느려짐';
 
@@ -704,7 +786,8 @@ class _DeviationRow extends StatelessWidget {
       child: Row(
         children: [
           Container(
-            width: 8, height: 8,
+            width: 8,
+            height: 8,
             decoration: BoxDecoration(color: diffColor, shape: BoxShape.circle),
           ),
           const SizedBox(width: 10),
@@ -715,18 +798,16 @@ class _DeviationRow extends StatelessWidget {
           const SizedBox(width: 12),
           Text(diffText,
               style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.bold,
-                  color: diffColor)),
+                  fontSize: 13, fontWeight: FontWeight.bold, color: diffColor)),
           const SizedBox(width: 8),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
             decoration: BoxDecoration(
-              color: diffColor.withOpacity(0.1),
+              color: diffColor.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(10),
             ),
-            child: Text(label,
-                style: TextStyle(fontSize: 11, color: diffColor)),
+            child:
+                Text(label, style: TextStyle(fontSize: 11, color: diffColor)),
           ),
           const Spacer(),
           const Icon(Icons.chevron_right_rounded,
