@@ -3,8 +3,8 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/bpm_result.dart';
+import '../models/track_result.dart';
 import '../services/api_service.dart';
-import 'analysis_tab.dart';
 
 enum ResultMode { bpm, track, empty }
 

@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:pdfx/pdfx.dart';
 
 import '../models/bpm_result.dart';
+import '../models/track_result.dart';
 import '../services/api_service.dart';
 import '../services/websocket_service.dart';
 import 'analysis_tab.dart';
@@ -181,32 +182,7 @@ class _MainScreenState extends State<MainScreen> {
         case WsEventType.trackSeparated:
           final payload = event.data['payload'] as Map<String, dynamic>? ?? {};
           final tracksJson = payload['tracks'] as Map<String, dynamic>? ?? {};
-          final results = <TrackResult>[
-            if (tracksJson['vocals'] != null)
-              TrackResult(
-                label: '보컬',
-                url: tracksJson['vocals'] as String,
-                icon: Icons.music_note_rounded,
-              ),
-            if (tracksJson['drums'] != null)
-              TrackResult(
-                label: '드럼',
-                url: tracksJson['drums'] as String,
-                icon: Icons.graphic_eq_rounded,
-              ),
-            if (tracksJson['bass'] != null)
-              TrackResult(
-                label: '베이스',
-                url: tracksJson['bass'] as String,
-                icon: Icons.bar_chart_rounded,
-              ),
-            if (tracksJson['other'] != null)
-              TrackResult(
-                label: '기타',
-                url: tracksJson['other'] as String,
-                icon: Icons.queue_music_rounded,
-              ),
-          ];
+          final results = TrackResultFactory.fromSeparatedTracks(tracksJson);
           if (mounted) setState(() => _tracks = results);
           break;
         case WsEventType.bpmAnalyzed:

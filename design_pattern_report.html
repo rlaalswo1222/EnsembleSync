@@ -1,0 +1,682 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>EnsembleSync 디자인 패턴 적용 보고서</title>
+  <style>
+    :root {
+      --text: #1f2937;
+      --muted: #6b7280;
+      --line: #d1d5db;
+      --soft: #f3f4f6;
+      --brand: #6d28d9;
+      --brand-soft: #ede9fe;
+      --ok: #047857;
+      --warn: #b45309;
+      --code: #111827;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      color: var(--text);
+      background: #ffffff;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.65;
+    }
+
+    .page {
+      max-width: 1040px;
+      margin: 0 auto;
+      padding: 48px 28px 72px;
+    }
+
+    header {
+      border-bottom: 3px solid var(--brand);
+      padding-bottom: 24px;
+      margin-bottom: 32px;
+    }
+
+    h1 {
+      margin: 0 0 10px;
+      font-size: 34px;
+      line-height: 1.25;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      margin: 42px 0 14px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--line);
+      font-size: 24px;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      margin: 28px 0 10px;
+      font-size: 19px;
+      letter-spacing: 0;
+    }
+
+    p {
+      margin: 8px 0;
+    }
+
+    .subtitle {
+      color: var(--muted);
+      font-size: 15px;
+    }
+
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin: 22px 0 8px;
+    }
+
+    .summary-item {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px 16px;
+      background: #fff;
+    }
+
+    .summary-item strong {
+      display: block;
+      margin-bottom: 4px;
+      color: var(--brand);
+      font-size: 17px;
+    }
+
+    .note {
+      border-left: 4px solid var(--brand);
+      background: var(--brand-soft);
+      padding: 12px 14px;
+      margin: 16px 0;
+      border-radius: 0 8px 8px 0;
+    }
+
+    .decision {
+      border-left: 4px solid var(--ok);
+      background: #ecfdf5;
+      padding: 12px 14px;
+      margin: 16px 0;
+      border-radius: 0 8px 8px 0;
+    }
+
+    .skip {
+      border-left: 4px solid var(--warn);
+      background: #fffbeb;
+      padding: 12px 14px;
+      margin: 12px 0;
+      border-radius: 0 8px 8px 0;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 16px 0;
+      font-size: 14px;
+    }
+
+    th,
+    td {
+      border: 1px solid var(--line);
+      padding: 10px 12px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: var(--soft);
+      font-weight: 700;
+    }
+
+    code {
+      color: #111827;
+      background: #f3f4f6;
+      border-radius: 4px;
+      padding: 2px 5px;
+      font-family: "Consolas", "SFMono-Regular", monospace;
+      font-size: 0.92em;
+    }
+
+    pre {
+      margin: 14px 0;
+      padding: 14px 16px;
+      overflow-x: auto;
+      color: #f9fafb;
+      background: var(--code);
+      border-radius: 8px;
+      font-family: "Consolas", "SFMono-Regular", monospace;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    pre code {
+      color: inherit;
+      background: transparent;
+      padding: 0;
+    }
+
+    ul {
+      margin: 8px 0 8px 22px;
+      padding: 0;
+    }
+
+    li {
+      margin: 5px 0;
+    }
+
+    .file {
+      color: var(--brand);
+      font-weight: 700;
+    }
+
+    .before-after {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      margin: 14px 0;
+    }
+
+    .panel {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .panel-title {
+      background: var(--soft);
+      border-bottom: 1px solid var(--line);
+      padding: 8px 12px;
+      font-weight: 700;
+    }
+
+    .panel pre {
+      margin: 0;
+      border-radius: 0;
+    }
+
+    footer {
+      margin-top: 48px;
+      padding-top: 18px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    @media (max-width: 760px) {
+      .summary,
+      .before-after {
+        grid-template-columns: 1fr;
+      }
+
+      .page {
+        padding: 32px 18px 56px;
+      }
+
+      h1 {
+        font-size: 28px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header>
+      <h1>EnsembleSync 디자인 패턴 적용 보고서</h1>
+      <p class="subtitle">
+        대상 프로젝트: Flutter 앱 + FastAPI/Celery 서버<br>
+        기준 자료: <strong>7. Architecture Design and Patterm.pdf</strong> 33~71페이지
+      </p>
+      <div class="summary">
+        <div class="summary-item">
+          <strong>Singleton</strong>
+          서버 DB 연결을 connection pool 싱글톤으로 관리
+        </div>
+        <div class="summary-item">
+          <strong>Factory Method</strong>
+          분석 작업 생성 책임을 Creator 클래스로 분리
+        </div>
+        <div class="summary-item">
+          <strong>Factory 변환</strong>
+          서버 track JSON을 Flutter 결과 객체로 생성
+        </div>
+      </div>
+    </header>
+
+    <section>
+      <h2>1. 적용 기준</h2>
+      <p>
+        이번 변경의 목표는 디자인 패턴을 단순히 “비슷하게 보이는 코드”에 붙이는 것이 아니라,
+        PDF에서 설명한 패턴 구조와 역할에 맞고 실제 유지보수성이 좋아지는 지점에만 적용하는 것이다.
+      </p>
+      <div class="note">
+        <strong>적용 원칙:</strong>
+        모든 패턴을 억지로 넣지 않았다. 현재 프로젝트에서 확실히 이득이 있는
+        Singleton, Factory Method, 객체 변환 Factory만 적용했다.
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>패턴</th>
+            <th>PDF 기준 핵심</th>
+            <th>이번 프로젝트 적용 여부</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Singleton</td>
+            <td>객체 인스턴스를 하나만 만들고 정적 접근 지점을 제공한다. DB connection interface 예시가 제시됨.</td>
+            <td>적용함. 서버 DB connection pool을 싱글톤으로 관리.</td>
+          </tr>
+          <tr>
+            <td>Iterator</td>
+            <td>컬렉션 내부 구조를 노출하지 않고 별도 iterator로 순회한다.</td>
+            <td>추가 적용하지 않음. 현재는 Dart/Python 기본 순회로 충분함.</td>
+          </tr>
+          <tr>
+            <td>Adapter</td>
+            <td>클라이언트가 기대하는 인터페이스로 기존 시스템의 인터페이스를 변환한다.</td>
+            <td>명시적 Adapter 클래스까지는 만들지 않음. track JSON 변환은 Factory로 처리.</td>
+          </tr>
+          <tr>
+            <td>Decorator</td>
+            <td>상속 대신 객체를 감싸 런타임에 기능을 동적으로 추가한다.</td>
+            <td>적용하지 않음. 현재 기능에는 런타임 기능 조합 수요가 명확하지 않음.</td>
+          </tr>
+          <tr>
+            <td>Factory Method</td>
+            <td>객체 생성 책임을 클라이언트에서 분리하고, Creator가 Product 생성을 담당한다.</td>
+            <td>적용함. 서버 분석 작업 생성과 Flutter track 결과 생성에 적용.</td>
+          </tr>
+          <tr>
+            <td>Abstract Factory</td>
+            <td>관련 객체군을 함께 생성한다.</td>
+            <td>적용하지 않음. 현재 관련 객체군 생성 요구가 뚜렷하지 않음.</td>
+          </tr>
+          <tr>
+            <td>State</td>
+            <td>상태별 행동을 별도 상태 클래스로 캡슐화한다.</td>
+            <td>적용하지 않음. 현재 enum 상태만으로 충분함.</td>
+          </tr>
+          <tr>
+            <td>Observer</td>
+            <td>Subject가 변화 알림을 Observer에게 전달한다.</td>
+            <td>추가 적용하지 않음. WebSocket/Stream 구조에 이미 자연스럽게 존재함.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>2. Singleton Pattern 적용</h2>
+      <h3>적용 파일</h3>
+      <p><span class="file">server/database.py</span></p>
+
+      <h3>기존 문제</h3>
+      <p>
+        기존의 <code>get_db()</code>는 호출될 때마다 PostgreSQL에 새 연결을 생성했다.
+        개발 단계에서는 단순하지만, 요청이 늘어나면 연결 생성 비용이 커지고 DB 최대 연결 수를 초과할 위험이 있다.
+      </p>
+      <div class="before-after">
+        <div class="panel">
+          <div class="panel-title">변경 전</div>
+          <pre><code>def get_db():
+    return psycopg2.connect(
+        host=os.getenv("DB_HOST", "localhost"),
+        database=os.getenv("DB_NAME", "ensemblesync"),
+        user=os.getenv("DB_USER"),
+        password=os.getenv("DB_PASSWORD")
+    )</code></pre>
+        </div>
+        <div class="panel">
+          <div class="panel-title">변경 후</div>
+          <pre><code>class DatabasePool:
+    _instance = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._instance._connection_pool = None
+        return cls._instance
+
+def get_db():
+    return DatabasePool().get_connection()</code></pre>
+        </div>
+      </div>
+
+      <h3>적용 내용</h3>
+      <ul>
+        <li><code>DatabasePool</code> 클래스를 추가했다.</li>
+        <li><code>_instance</code>를 통해 서버 전체에서 pool 객체를 하나만 생성한다.</li>
+        <li><code>ThreadedConnectionPool</code>을 사용해 DB 연결을 매번 새로 만들지 않고 재사용한다.</li>
+        <li>기존 라우터 코드가 계속 <code>conn.close()</code>를 호출해도 작동하도록 <code>_PooledConnection</code> 래퍼를 만들었다.</li>
+      </ul>
+
+      <div class="decision">
+        <strong>왜 확실히 좋은 적용인가?</strong>
+        PDF의 Singleton 예시는 DB connection interface를 대표 사례로 든다.
+        이 프로젝트의 <code>database.py</code>는 실제로 모든 서버 API가 DB 연결을 얻는 공통 진입점이므로,
+        싱글톤 pool 관리자로 바꾸는 것이 패턴 목적과 정확히 맞는다.
+      </div>
+
+      <h3>발표 설명 문장</h3>
+      <pre><code>서버의 DB 연결 인터페이스를 Singleton Pattern으로 개선했습니다.
+DatabasePool은 서버 전체에서 하나만 생성되며, 내부에 connection pool을 가지고 있습니다.
+따라서 요청마다 새 DB 연결을 만드는 대신 pool에서 연결을 빌리고 반납해 성능과 안정성을 높였습니다.</code></pre>
+    </section>
+
+    <section>
+      <h2>3. Factory Method Pattern 적용: 서버 분석 작업 생성</h2>
+      <h3>적용 파일</h3>
+      <p>
+        <span class="file">server/analysis_task_factory.py</span><br>
+        <span class="file">server/audio_analysis.py</span>
+      </p>
+
+      <h3>기존 문제</h3>
+      <p>
+        기존 <code>audio_analysis.py</code>는 <code>job_type</code> 값에 따라 Celery 작업 생성 방식을 직접 분기했다.
+        분석 종류가 늘어날수록 라우터 함수가 계속 길어지고, API 요청 처리 책임과 작업 생성 책임이 섞인다.
+      </p>
+      <div class="panel">
+        <div class="panel-title">변경 전 핵심 구조</div>
+        <pre><code>if job_type == "separation":
+    task = celery_app.send_task(
+        "separate_audio_task",
+        args=[file_path, room_id, job_id],
+        queue="separation",
+    )
+else:
+    task = celery_app.send_task(
+        f"tasks.{job_type}_analysis",
+        args=[job_id, audio_file_id],
+        queue=queue_name,
+    )</code></pre>
+      </div>
+
+      <h3>변경 후 구조</h3>
+      <p>
+        분석 작업 생성 책임을 <code>AnalysisTaskCreator</code> 계층으로 분리했다.
+        <code>BpmAnalysisTaskCreator</code>, <code>PitchAnalysisTaskCreator</code>,
+        <code>SeparationTaskCreator</code>가 각각 자기 작업 생성 방식을 담당한다.
+      </p>
+      <div class="panel">
+        <div class="panel-title">변경 후 audio_analysis.py</div>
+        <pre><code>task = AnalysisTaskFactory.create_task(
+    job_type,
+    celery_app,
+    cur,
+    room_id,
+    audio_file_id,
+    job_id,
+)</code></pre>
+      </div>
+      <div class="panel">
+        <div class="panel-title">새로 추가된 Factory 구조</div>
+        <pre><code>class AnalysisTaskCreator(ABC):
+    @abstractmethod
+    def create_task(self, celery_app, cursor, room_id, audio_file_id, job_id):
+        pass
+
+class BpmAnalysisTaskCreator(AnalysisTaskCreator):
+    def create_task(self, celery_app, cursor, room_id, audio_file_id, job_id):
+        return celery_app.send_task(
+            "tasks.bpm_analysis",
+            args=[job_id, audio_file_id],
+            queue="bpm",
+        )</code></pre>
+      </div>
+
+      <h3>적용 효과</h3>
+      <ul>
+        <li>API 라우터는 요청 검증, DB 저장, 응답 반환에 집중한다.</li>
+        <li>작업 생성 방식은 Factory/Creator 클래스가 담당한다.</li>
+        <li>새 분석 타입이 추가되면 새 Creator를 추가하고 Factory 등록만 하면 된다.</li>
+        <li>PDF에서 설명한 “객체 생성 책임 분리”와 “클라이언트가 정확한 concrete class를 몰라도 됨”에 부합한다.</li>
+      </ul>
+
+      <div class="decision">
+        <strong>왜 확실히 좋은 적용인가?</strong>
+        서버 분석 작업은 <code>bpm</code>, <code>pitch</code>, <code>separation</code>처럼 생성 방식이 달라지는 객체/작업이다.
+        기존 분기문은 Factory Method가 해결하려는 전형적인 문제다.
+      </div>
+
+      <h3>발표 설명 문장</h3>
+      <pre><code>분석 작업 생성 로직에 Factory Method Pattern을 적용했습니다.
+기존에는 API 라우터가 job_type을 보고 직접 Celery 작업을 생성했지만,
+이제는 AnalysisTaskFactory가 적절한 Creator를 선택해 작업을 생성합니다.
+덕분에 분석 종류가 추가되어도 라우터 코드를 크게 수정하지 않아도 됩니다.</code></pre>
+    </section>
+
+    <section>
+      <h2>4. Factory Method 적용: Flutter 트랙 결과 생성</h2>
+      <h3>적용 파일</h3>
+      <p>
+        <span class="file">lib/models/track_result.dart</span><br>
+        <span class="file">lib/screens/main_screen.dart</span><br>
+        <span class="file">lib/screens/analysis_tab.dart</span><br>
+        <span class="file">lib/screens/result_tab.dart</span>
+      </p>
+
+      <h3>기존 문제</h3>
+      <p>
+        기존에는 <code>TrackResult</code> 모델이 <code>analysis_tab.dart</code> 안에 있었고,
+        <code>main_screen.dart</code>가 서버에서 온 <code>vocals</code>, <code>drums</code>,
+        <code>bass</code>, <code>other</code>를 직접 확인하며 결과 객체를 만들었다.
+      </p>
+      <div class="panel">
+        <div class="panel-title">변경 전 main_screen.dart</div>
+        <pre><code>final results = &lt;TrackResult&gt;[
+  if (tracksJson['vocals'] != null)
+    TrackResult(label: '보컬', url: tracksJson['vocals'], icon: Icons.music_note_rounded),
+  if (tracksJson['drums'] != null)
+    TrackResult(label: '드럼', url: tracksJson['drums'], icon: Icons.graphic_eq_rounded),
+  ...
+];</code></pre>
+      </div>
+
+      <h3>변경 후 구조</h3>
+      <p>
+        <code>TrackResult</code>를 화면 파일에서 분리해 모델 파일로 이동하고,
+        <code>TrackResultFactory</code>를 추가했다.
+      </p>
+      <div class="panel">
+        <div class="panel-title">lib/models/track_result.dart</div>
+        <pre><code>class TrackResultFactory {
+  static const _metadata = {
+    'vocals': _TrackMetadata('보컬', Icons.music_note_rounded),
+    'drums': _TrackMetadata('드럼', Icons.graphic_eq_rounded),
+    'bass': _TrackMetadata('베이스', Icons.bar_chart_rounded),
+    'other': _TrackMetadata('기타', Icons.queue_music_rounded),
+  };
+
+  static List&lt;TrackResult&gt; fromSeparatedTracks(Map&lt;String, dynamic&gt; tracksJson) {
+    return _metadata.entries
+        .where((entry) =&gt; tracksJson[entry.key] != null)
+        .map((entry) =&gt; TrackResult(
+              label: entry.value.label,
+              url: tracksJson[entry.key] as String,
+              icon: entry.value.icon,
+            ))
+        .toList();
+  }
+}</code></pre>
+      </div>
+      <div class="panel">
+        <div class="panel-title">변경 후 main_screen.dart</div>
+        <pre><code>final results = TrackResultFactory.fromSeparatedTracks(tracksJson);</code></pre>
+      </div>
+
+      <h3>적용 효과</h3>
+      <ul>
+        <li>화면 코드에서 트랙 타입별 생성 세부사항을 제거했다.</li>
+        <li>서버 응답 JSON을 앱에서 쓰는 <code>TrackResult</code> 객체 목록으로 변환하는 책임이 명확해졌다.</li>
+        <li>나중에 <code>piano</code>, <code>guitar</code> 같은 트랙 타입이 추가되면 Factory의 metadata만 확장하면 된다.</li>
+        <li><code>TrackResult</code>가 특정 화면에 묶이지 않고 독립 모델이 되었다.</li>
+      </ul>
+
+      <div class="decision">
+        <strong>왜 확실히 좋은 적용인가?</strong>
+        서버 응답의 track type과 Flutter UI에 필요한 label/icon/url 조합은 생성 규칙이 분명하다.
+        이 규칙을 화면에서 분리하면 코드 중복과 변경 범위가 줄어든다.
+      </div>
+
+      <h3>발표 설명 문장</h3>
+      <pre><code>트랙 분리 결과 생성에 Factory Method 성격의 TrackResultFactory를 적용했습니다.
+서버에서 온 JSON을 화면이 직접 해석하지 않고,
+Factory가 TrackResult 객체 목록으로 변환합니다.
+이로써 UI 코드는 결과를 표시하는 역할에 집중하고, 객체 생성 규칙은 모델 계층으로 이동했습니다.</code></pre>
+    </section>
+
+    <section>
+      <h2>5. 적용하지 않은 패턴과 이유</h2>
+      <div class="skip">
+        <strong>Iterator Pattern</strong>
+        <p>
+          현재 프로젝트는 Dart의 <code>map()</code>, Python의 <code>for</code> 반복으로 컬렉션 순회가 충분히 단순하다.
+          PDF처럼 별도 Iterator 객체를 만들면 컬렉션 내부 구조 은닉이라는 이득보다 코드 복잡도가 커진다.
+        </p>
+      </div>
+      <div class="skip">
+        <strong>Decorator Pattern</strong>
+        <p>
+          Flutter 위젯 구조는 감싸기 방식이라 Decorator와 유사하지만,
+          PDF의 Decorator Pattern처럼 런타임에 기능 조합을 객체에 동적으로 추가해야 하는 요구는 현재 명확하지 않다.
+          그래서 별도 Decorator 클래스는 만들지 않았다.
+        </p>
+      </div>
+      <div class="skip">
+        <strong>Abstract Factory Pattern</strong>
+        <p>
+          관련 객체군을 함께 생성해야 할 때 적합한 패턴이다.
+          현재 분석 기능은 작업 생성 단위의 Factory Method로 충분하고,
+          UI/API/결과 객체군을 한 번에 생성하는 구조까지는 필요하지 않다.
+        </p>
+      </div>
+      <div class="skip">
+        <strong>State Pattern</strong>
+        <p>
+          <code>AnalysisState</code>, <code>ResultMode</code>, <code>DrawTool</code> 같은 enum은 존재하지만,
+          상태별 행동이 복잡하지 않아 상태 클래스로 분리하면 과설계가 된다.
+        </p>
+      </div>
+      <div class="skip">
+        <strong>Observer Pattern</strong>
+        <p>
+          WebSocket, Stream, Redis pub/sub 구조는 이미 Observer 성격을 가진다.
+          하지만 이번 작업에서는 “이미 있는 구조를 패턴이라고 부르기”보다 실제 개선이 필요한 곳을 바꾸는 것이 목적이므로 추가 구현하지 않았다.
+        </p>
+      </div>
+    </section>
+
+    <section>
+      <h2>6. 변경 파일 목록</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>파일</th>
+            <th>변경 내용</th>
+            <th>관련 패턴</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>server/database.py</code></td>
+            <td><code>DatabasePool</code>, <code>_PooledConnection</code> 추가. <code>get_db()</code>가 pool에서 연결을 가져오도록 변경.</td>
+            <td>Singleton</td>
+          </tr>
+          <tr>
+            <td><code>server/analysis_task_factory.py</code></td>
+            <td>분석 작업 생성 Creator 계층과 <code>AnalysisTaskFactory</code> 추가.</td>
+            <td>Factory Method</td>
+          </tr>
+          <tr>
+            <td><code>server/audio_analysis.py</code></td>
+            <td>분석 작업 생성 분기문을 <code>AnalysisTaskFactory.create_task()</code> 호출로 대체.</td>
+            <td>Factory Method</td>
+          </tr>
+          <tr>
+            <td><code>lib/models/track_result.dart</code></td>
+            <td><code>TrackResult</code> 모델과 <code>TrackResultFactory</code> 추가.</td>
+            <td>Factory Method / 변환 Factory</td>
+          </tr>
+          <tr>
+            <td><code>lib/screens/main_screen.dart</code></td>
+            <td>트랙 결과 생성 하드코딩을 <code>TrackResultFactory.fromSeparatedTracks()</code>로 대체.</td>
+            <td>Factory Method</td>
+          </tr>
+          <tr>
+            <td><code>lib/screens/analysis_tab.dart</code></td>
+            <td>화면 파일 내부에 있던 <code>TrackResult</code> 정의 제거.</td>
+            <td>모델 책임 분리</td>
+          </tr>
+          <tr>
+            <td><code>lib/screens/result_tab.dart</code></td>
+            <td><code>TrackResult</code>를 새 모델 파일에서 import하도록 변경.</td>
+            <td>모델 책임 분리</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>7. 검증 결과</h2>
+      <p>변경 후 다음 검증을 수행했다.</p>
+      <pre><code>dart format lib\models\track_result.dart lib\screens\analysis_tab.dart lib\screens\main_screen.dart lib\screens\result_tab.dart
+flutter analyze
+python -m py_compile server\database.py server\analysis_task_factory.py server\audio_analysis.py</code></pre>
+      <table>
+        <thead>
+          <tr>
+            <th>검증</th>
+            <th>결과</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Dart formatting</td>
+            <td>통과</td>
+          </tr>
+          <tr>
+            <td>Flutter analyze</td>
+            <td>No issues found</td>
+          </tr>
+          <tr>
+            <td>Python compile check</td>
+            <td>통과</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>8. 최종 결론</h2>
+      <p>
+        이번 리팩터링은 모든 디자인 패턴을 억지로 적용하는 것이 아니라,
+        프로젝트 구조상 확실히 필요한 곳에만 패턴을 적용했다.
+      </p>
+      <ul>
+        <li>서버 DB 접근은 Singleton connection pool로 개선했다.</li>
+        <li>서버 분석 작업 생성은 Factory Method로 분리했다.</li>
+        <li>Flutter 트랙 결과 생성은 Factory로 모델 계층에 정리했다.</li>
+      </ul>
+      <p>
+        결과적으로 API 라우터와 화면 코드는 각자의 본래 역할에 더 집중하게 되었고,
+        DB 연결 관리와 객체 생성 규칙은 별도 클래스로 분리되어 유지보수성이 좋아졌다.
+      </p>
+    </section>
+
+    <footer>
+      작성 대상: EnsembleSync 디자인 패턴 적용 변경사항<br>
+      작성 파일: design_pattern_report.html
+    </footer>
+  </main>
+</body>
+</html>
