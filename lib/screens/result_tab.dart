@@ -1,10 +1,10 @@
 import 'dart:typed_data';
 import 'package:audioplayers/audioplayers.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../models/bpm_result.dart';
-import '../models/track_result.dart';
 import '../services/api_service.dart';
+import 'analysis_tab.dart';
 
 enum ResultMode { bpm, track, empty }
 
@@ -51,6 +51,8 @@ class _ResultTabState extends State<ResultTab> {
   Duration _trackDuration = Duration.zero;
   bool _trackIsPlaying = false;
   String? _playingTrackUrl;
+  String? _savingTrackUrl;
+  String? _savingTrackMessage;
 
   double get _playPosition => _duration.inMilliseconds > 0
       ? _position.inMilliseconds / _duration.inMilliseconds
@@ -138,7 +140,12 @@ class _ResultTabState extends State<ResultTab> {
       if (mounted) {
         setState(() => _bpmResult = BpmResult.fromJson(data));
       }
-    } catch (_) {
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('BPM 결과 조회 실패: $e')),
+        );
+      }
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
@@ -449,6 +456,7 @@ class _ResultTabState extends State<ResultTab> {
   Widget _buildTrackCard(TrackResult track) {
     final isActive = _playingTrackUrl == track.url;
     final isPlaying = isActive && _trackIsPlaying;
+    final isSaving = _savingTrackUrl == track.url;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -495,12 +503,47 @@ class _ResultTabState extends State<ResultTab> {
               ),
               const SizedBox(width: 10),
               GestureDetector(
-                onTap: () => _launchUrl(context, track.url),
-                child: const Icon(Icons.download_rounded,
-                    color: Color(0xFF6B7280), size: 24),
+                onTap: isSaving ? null : () => _downloadTrack(context, track),
+                child: isSaving
+                    ? const SizedBox(
+                        width: 22,
+                        height: 22,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Color(0xFF6B7280),
+                        ),
+                      )
+                    : const Icon(Icons.download_rounded,
+                        color: Color(0xFF6B7280), size: 24),
               ),
             ],
           ),
+          if (isSaving && _savingTrackMessage != null) ...[
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                const SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: _purple,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _savingTrackMessage!,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Color(0xFF6B7280),
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
           if (isActive) ...[
             const SizedBox(height: 10),
             Row(
@@ -543,17 +586,72 @@ class _ResultTabState extends State<ResultTab> {
     );
   }
 
-  Future<void> _launchUrl(BuildContext context, String url) async {
-    final uri = Uri.parse(url);
-    final canLaunch = await canLaunchUrl(uri);
-    if (!context.mounted) return;
-    if (canLaunch) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } else {
+  Future<void> _downloadTrack(BuildContext context, TrackResult track) async {
+    final filename = _trackFilename(track);
+    setState(() {
+      _savingTrackUrl = track.url;
+      _savingTrackMessage = '$filename 다운로드 중...';
+    });
+
+    try {
+      final bytes = await ApiService().downloadTrack(track.url);
+      if (!context.mounted) return;
+
+      setState(() {
+        _savingTrackMessage = '$filename 저장 위치 선택 중...';
+      });
+
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('열 수 없습니다')),
+        const SnackBar(content: Text('저장할 위치를 선택해주세요.')),
       );
+
+      final extension = _trackExtension(track);
+      final savedPath = await FilePicker.platform.saveFile(
+        dialogTitle: '트랙 저장 위치 선택',
+        fileName: filename,
+        type: FileType.custom,
+        allowedExtensions: [extension],
+        bytes: bytes,
+      );
+
+      if (!context.mounted) return;
+      if (savedPath == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('트랙 저장이 취소되었습니다.')),
+        );
+      } else {
+        setState(() {
+          _savingTrackMessage = '$savedPath 에 저장 중...';
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('저장 완료: $savedPath')),
+        );
+      }
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('트랙 다운로드 실패: $e')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _savingTrackUrl = null;
+          _savingTrackMessage = null;
+        });
+      }
     }
+  }
+
+  String _trackFilename(TrackResult track) {
+    final safeLabel = track.label.replaceAll(RegExp(r'[\\/:*?"<>|\\s]+'), '_');
+    return '${safeLabel}_track.${_trackExtension(track)}';
+  }
+
+  String _trackExtension(TrackResult track) {
+    final extension =
+        Uri.tryParse(track.url)?.pathSegments.last.split('.').last;
+    if (extension == null || extension.length > 5) return 'wav';
+    return extension.toLowerCase();
   }
 
   String _formatTime(double seconds) {

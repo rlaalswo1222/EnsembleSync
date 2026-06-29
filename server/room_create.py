@@ -22,12 +22,16 @@ def generate_room_code():
 async def create_room(request: RoomCreateRequest):
     conn = None
     try:
+        creator_name = request.creator_name.strip()
+        if not creator_name:
+            return {"status": 400, "message": "닉네임을 입력해주세요."}
+
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
         cur.execute(
             "INSERT INTO member (nickname) VALUES (%s) RETURNING id",
-            (request.creator_name,)
+            (creator_name,)
         )
         member_id = cur.fetchone()['id']
 

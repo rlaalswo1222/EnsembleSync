@@ -63,7 +63,7 @@ class ApiService {
     final request = http.MultipartRequest('POST', uri)
       ..files
           .add(http.MultipartFile.fromBytes('file', bytes, filename: filename));
-    final streamed = await request.send();
+    final streamed = await request.send().timeout(const Duration(seconds: 30));
     final response = await http.Response.fromStream(streamed);
     final data = jsonDecode(response.body) as Map<String, dynamic>;
     if (data['status'] == 200) return data['file_url'] as String;
@@ -76,9 +76,20 @@ class ApiService {
     final uri = fileUrl.startsWith('http')
         ? Uri.parse(fileUrl)
         : Uri.parse('${ApiConstants.baseUrl}$fileUrl');
-    final response = await _client.get(uri);
+    final response =
+        await _client.get(uri).timeout(const Duration(seconds: 20));
     if (response.statusCode == 200) return response.bodyBytes;
     throw ApiException(response.statusCode, '이미지 다운로드 실패');
+  }
+
+  Future<Uint8List> downloadTrack(String fileUrl) async {
+    final uri = fileUrl.startsWith('http')
+        ? Uri.parse(fileUrl)
+        : Uri.parse('${ApiConstants.baseUrl}$fileUrl');
+    final response =
+        await _client.get(uri).timeout(const Duration(seconds: 30));
+    if (response.statusCode == 200) return response.bodyBytes;
+    throw ApiException(response.statusCode, '트랙 다운로드 실패');
   }
 
   // ── 최신 악보 URL ──────────────────────────────────────────
@@ -121,7 +132,7 @@ class ApiService {
     final request = http.MultipartRequest('POST', uri)
       ..files
           .add(http.MultipartFile.fromBytes('file', bytes, filename: filename));
-    final streamed = await request.send();
+    final streamed = await request.send().timeout(const Duration(seconds: 30));
     final response = await http.Response.fromStream(streamed);
     final data = jsonDecode(response.body) as Map<String, dynamic>;
     if (data['status'] == 200) return data;
@@ -140,7 +151,7 @@ class ApiService {
       ..fields['room_id'] = roomId
       ..files
           .add(http.MultipartFile.fromBytes('file', bytes, filename: filename));
-    final streamed = await request.send();
+    final streamed = await request.send().timeout(const Duration(seconds: 30));
     final response = await http.Response.fromStream(streamed);
     final data = jsonDecode(response.body) as Map<String, dynamic>;
     if (data['status'] == 200 || data['status'] == 202) return data;

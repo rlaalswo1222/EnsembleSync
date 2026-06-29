@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -6,31 +8,13 @@ import 'package:image_picker/image_picker.dart';
 import 'package:pdfx/pdfx.dart';
 
 import '../models/bpm_result.dart';
-import '../models/track_result.dart';
+import '../models/stroke.dart';
 import '../services/api_service.dart';
 import '../services/websocket_service.dart';
+import '../widgets/room_header.dart';
+import '../widgets/score_canvas.dart';
 import 'analysis_tab.dart';
 import 'result_tab.dart';
-
-class Stroke {
-  final String id;
-  final List<Offset> points;
-  final Color color;
-  final double width;
-  final bool isEraser;
-  final bool isHighlighter;
-
-  const Stroke({
-    required this.id,
-    required this.points,
-    required this.color,
-    required this.width,
-    this.isEraser = false,
-    this.isHighlighter = false,
-  });
-}
-
-enum DrawTool { pen, eraser, highlighter }
 
 class MainScreen extends StatefulWidget {
   final String nickname;
@@ -50,6 +34,7 @@ class MainScreen extends StatefulWidget {
 
 class _MainScreenState extends State<MainScreen> {
   static const _purple = Color(0xFF8B5CF6);
+  static const _shareChannel = MethodChannel('ensemble_sync/share');
 
   late final WebSocketService _ws;
 
@@ -62,7 +47,10 @@ class _MainScreenState extends State<MainScreen> {
   final List<Map<String, dynamic>> _participants = [];
 
   Uint8List? _scoreImageBytes;
-  List<Uint8List> _pdfPages = [];
+  PdfDocument? _pdfDocument;
+  int _pdfPageCount = 0;
+  final Map<int, Uint8List> _pdfPageCache = {};
+  final Set<int> _loadingPdfPages = {};
   int _currentPdfPage = 0;
   bool _isLoadingPdf = false;
 
@@ -76,17 +64,9 @@ class _MainScreenState extends State<MainScreen> {
   BpmResult? _bpmResult;
   ResultMode? _preferredResultMode;
 
-  static const _avatarColors = [
-    Color(0xFF8B5CF6),
-    Color(0xFFEC4899),
-    Color(0xFF10B981),
-    Color(0xFFF59E0B),
-    Color(0xFF3B82F6),
-  ];
-
-  bool get _isPdf => _pdfPages.isNotEmpty;
+  bool get _isPdf => _pdfDocument != null && _pdfPageCount > 0;
   Uint8List? get _currentDisplayBytes =>
-      _isPdf ? _pdfPages[_currentPdfPage] : _scoreImageBytes;
+      _isPdf ? _pdfPageCache[_currentPdfPage] : _scoreImageBytes;
 
   List<Stroke> _strokesForPage(int page) {
     _pageStrokes[page] ??= [];
@@ -128,6 +108,7 @@ class _MainScreenState extends State<MainScreen> {
 
   @override
   void dispose() {
+    unawaited(_pdfDocument?.close() ?? Future<void>.value());
     _ws.dispose();
     super.dispose();
   }
@@ -182,7 +163,32 @@ class _MainScreenState extends State<MainScreen> {
         case WsEventType.trackSeparated:
           final payload = event.data['payload'] as Map<String, dynamic>? ?? {};
           final tracksJson = payload['tracks'] as Map<String, dynamic>? ?? {};
-          final results = TrackResultFactory.fromSeparatedTracks(tracksJson);
+          final results = <TrackResult>[
+            if (tracksJson['vocals'] != null)
+              TrackResult(
+                label: '보컬',
+                url: tracksJson['vocals'] as String,
+                icon: Icons.music_note_rounded,
+              ),
+            if (tracksJson['drums'] != null)
+              TrackResult(
+                label: '드럼',
+                url: tracksJson['drums'] as String,
+                icon: Icons.graphic_eq_rounded,
+              ),
+            if (tracksJson['bass'] != null)
+              TrackResult(
+                label: '베이스',
+                url: tracksJson['bass'] as String,
+                icon: Icons.bar_chart_rounded,
+              ),
+            if (tracksJson['other'] != null)
+              TrackResult(
+                label: '기타',
+                url: tracksJson['other'] as String,
+                icon: Icons.queue_music_rounded,
+              ),
+          ];
           if (mounted) setState(() => _tracks = results);
           break;
         case WsEventType.bpmAnalyzed:
@@ -202,7 +208,9 @@ class _MainScreenState extends State<MainScreen> {
     try {
       final data = await ApiService().getBpmResult(jobId);
       if (mounted) setState(() => _bpmResult = BpmResult.fromJson(data));
-    } catch (_) {}
+    } catch (e) {
+      if (mounted) _showSnack('BPM 결과 조회 실패: $e');
+    }
   }
 
   Future<void> _loadScoreFromUrl(String fileUrl) async {
@@ -212,48 +220,127 @@ class _MainScreenState extends State<MainScreen> {
       if (fileUrl.toLowerCase().endsWith('.pdf')) {
         await _loadPdfPages(bytes);
       } else {
-        setState(() {
-          _scoreImageBytes = bytes;
-          _pdfPages = [];
-          _currentPdfPage = 0;
-          _pageStrokes.clear();
-        });
+        await _showImageScore(bytes);
       }
-    } catch (_) {}
+    } catch (e) {
+      if (mounted) _showSnack('악보 다운로드 실패: $e');
+    }
   }
 
   Future<void> _loadPdfPages(Uint8List bytes) async {
     setState(() => _isLoadingPdf = true);
+    PdfDocument? nextDocument;
     try {
-      final document = await PdfDocument.openData(bytes);
-      final pages = <Uint8List>[];
-      for (var i = 1; i <= document.pagesCount; i++) {
-        final page = await document.getPage(i);
-        final image = await page.render(
-          width: page.width * 2,
-          height: page.height * 2,
-          format: PdfPageImageFormat.jpeg,
-          backgroundColor: '#ffffff',
-        );
-        if (image != null) pages.add(image.bytes);
-        await page.close();
+      nextDocument = await PdfDocument.openData(bytes);
+      final firstPageBytes = await _renderPdfPageBytes(nextDocument, 0);
+      if (firstPageBytes == null) {
+        throw Exception('첫 페이지 렌더링 실패');
       }
-      await document.close();
-      if (mounted) {
-        setState(() {
-          _pdfPages = pages;
-          _currentPdfPage = 0;
-          _scoreImageBytes = null;
-          _pageStrokes.clear();
-          _isLoadingPdf = false;
-        });
+
+      if (!mounted) {
+        unawaited(nextDocument.close());
+        nextDocument = null;
+        return;
       }
+
+      final previousDocument = _pdfDocument;
+      setState(() {
+        _pdfDocument = nextDocument;
+        _pdfPageCount = nextDocument!.pagesCount;
+        _pdfPageCache
+          ..clear()
+          ..[0] = firstPageBytes;
+        _loadingPdfPages.clear();
+        _currentPdfPage = 0;
+        _scoreImageBytes = null;
+        _pageStrokes.clear();
+        _isLoadingPdf = false;
+      });
+      nextDocument = null;
+      unawaited(previousDocument?.close() ?? Future<void>.value());
+      _prefetchPdfNeighbors(0);
     } catch (e) {
+      unawaited(nextDocument?.close() ?? Future<void>.value());
       if (mounted) {
         setState(() => _isLoadingPdf = false);
         _showSnack('PDF 로드 실패: $e');
       }
     }
+  }
+
+  Future<void> _showImageScore(Uint8List bytes) async {
+    final previousDocument = _pdfDocument;
+    if (!mounted) return;
+    setState(() {
+      _scoreImageBytes = bytes;
+      _pdfDocument = null;
+      _pdfPageCount = 0;
+      _pdfPageCache.clear();
+      _loadingPdfPages.clear();
+      _currentPdfPage = 0;
+      _pageStrokes.clear();
+      _isLoadingPdf = false;
+    });
+    unawaited(previousDocument?.close() ?? Future<void>.value());
+  }
+
+  Future<Uint8List?> _renderPdfPageBytes(
+    PdfDocument document,
+    int pageIndex,
+  ) async {
+    final page = await document.getPage(pageIndex + 1);
+    try {
+      final image = await page.render(
+        width: page.width * 2,
+        height: page.height * 2,
+        format: PdfPageImageFormat.jpeg,
+        backgroundColor: '#ffffff',
+      );
+      return image?.bytes;
+    } finally {
+      await page.close();
+    }
+  }
+
+  Future<void> _ensurePdfPageRendered(int pageIndex) async {
+    final document = _pdfDocument;
+    if (document == null ||
+        pageIndex < 0 ||
+        pageIndex >= _pdfPageCount ||
+        _pdfPageCache.containsKey(pageIndex) ||
+        _loadingPdfPages.contains(pageIndex)) {
+      return;
+    }
+
+    if (!mounted) return;
+    setState(() => _loadingPdfPages.add(pageIndex));
+    try {
+      final bytes = await _renderPdfPageBytes(document, pageIndex);
+      if (!mounted || document != _pdfDocument) return;
+      if (bytes != null) {
+        setState(() => _pdfPageCache[pageIndex] = bytes);
+      }
+    } catch (e) {
+      if (mounted && pageIndex == _currentPdfPage) {
+        _showSnack('PDF 페이지 로드 실패: $e');
+      }
+    } finally {
+      if (mounted && document == _pdfDocument) {
+        setState(() => _loadingPdfPages.remove(pageIndex));
+      }
+    }
+  }
+
+  void _prefetchPdfNeighbors(int pageIndex) {
+    unawaited(_ensurePdfPageRendered(pageIndex - 1));
+    unawaited(_ensurePdfPageRendered(pageIndex + 1));
+  }
+
+  Future<void> _goToPdfPage(int pageIndex) async {
+    if (pageIndex < 0 || pageIndex >= _pdfPageCount) return;
+    setState(() => _currentPdfPage = pageIndex);
+    await _ensurePdfPageRendered(pageIndex);
+    _prefetchPdfNeighbors(pageIndex);
   }
 
   Future<void> _uploadScore(Uint8List bytes, String filename) async {
@@ -346,14 +433,7 @@ class _MainScreenState extends State<MainScreen> {
                 if (img == null) return;
                 final bytes = await _cropImage(img.path);
                 if (bytes == null) return;
-                if (mounted) {
-                  setState(() {
-                    _scoreImageBytes = bytes;
-                    _pdfPages = [];
-                    _currentPdfPage = 0;
-                    _pageStrokes.clear();
-                  });
-                }
+                if (mounted) await _showImageScore(bytes);
                 await _uploadScore(bytes, img.name);
               },
             ),
@@ -367,14 +447,7 @@ class _MainScreenState extends State<MainScreen> {
                 if (img == null) return;
                 final bytes = await _cropImage(img.path);
                 if (bytes == null) return;
-                if (mounted) {
-                  setState(() {
-                    _scoreImageBytes = bytes;
-                    _pdfPages = [];
-                    _currentPdfPage = 0;
-                    _pageStrokes.clear();
-                  });
-                }
+                if (mounted) await _showImageScore(bytes);
                 await _uploadScore(bytes, img.name);
               },
             ),
@@ -523,6 +596,64 @@ class _MainScreenState extends State<MainScreen> {
         .showSnackBar(SnackBar(content: Text(message)));
   }
 
+  String get _roomShareText =>
+      'EnsembleSync 방 코드: ${widget.roomCode}\n앱에서 방 참가를 눌러 이 코드를 입력해주세요.';
+
+  Future<void> _copyRoomCode() async {
+    await Clipboard.setData(ClipboardData(text: widget.roomCode));
+    if (mounted) _showSnack('방 코드가 복사되었습니다.');
+  }
+
+  Future<void> _shareRoomCodeToKakao() async {
+    try {
+      final shared = await _shareChannel.invokeMethod<bool>(
+        'shareToKakao',
+        {'text': _roomShareText},
+      );
+      if (mounted && shared != true) {
+        _showSnack('카카오톡이 설치되어 있지 않습니다.');
+      }
+    } on PlatformException catch (e) {
+      if (mounted) {
+        _showSnack('카카오톡 공유 실패: ${e.message ?? e.code}');
+      }
+    }
+  }
+
+  void _showRoomShareSheet() {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 8),
+            _SheetItem(
+              icon: Icons.copy_rounded,
+              label: '클립보드 복사',
+              onTap: () {
+                Navigator.pop(context);
+                _copyRoomCode();
+              },
+            ),
+            _SheetItem(
+              icon: Icons.chat_bubble_outline_rounded,
+              label: '카카오톡으로 공유',
+              onTap: () {
+                Navigator.pop(context);
+                _shareRoomCodeToKakao();
+              },
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -552,76 +683,12 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   Widget _buildHeader() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Text('방 코드',
-                  style: TextStyle(fontSize: 12, color: Color(0xFF6B7280))),
-              const SizedBox(width: 8),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF3F0FF),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  widget.roomCode,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.bold,
-                    color: _purple,
-                    letterSpacing: 1.5,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 6),
-              GestureDetector(
-                onTap: () async {
-                  await Clipboard.setData(ClipboardData(text: widget.roomCode));
-                  if (mounted) _showSnack('방 코드가 복사되었습니다.');
-                },
-                child: const Icon(Icons.copy_rounded,
-                    size: 16, color: Color(0xFF9CA3AF)),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Text('참가자 ${_participants.length}명',
-                  style:
-                      const TextStyle(fontSize: 12, color: Color(0xFF6B7280))),
-              const SizedBox(width: 8),
-              ..._participants.asMap().entries.map((entry) {
-                final color = _avatarColors[entry.key % _avatarColors.length];
-                final initial = entry.value['name']?.substring(0, 1) ?? '?';
-                return Container(
-                  margin: const EdgeInsets.only(right: 4),
-                  width: 28,
-                  height: 28,
-                  decoration:
-                      BoxDecoration(color: color, shape: BoxShape.circle),
-                  child: Center(
-                    child: Text(
-                      initial,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                );
-              }),
-            ],
-          ),
-        ],
-      ),
+    return RoomHeader(
+      roomCode: widget.roomCode,
+      participantNames: _participants
+          .map((participant) => participant['name'] as String? ?? '?')
+          .toList(),
+      onShareRoom: _showRoomShareSheet,
     );
   }
 
@@ -729,7 +796,7 @@ class _MainScreenState extends State<MainScreen> {
           border: Border.all(color: const Color(0xFFE5E7EB)),
         ),
         clipBehavior: Clip.hardEdge,
-        child: _isLoadingPdf
+        child: _isLoadingPdf || (_isPdf && _currentDisplayBytes == null)
             ? const Center(child: CircularProgressIndicator(color: _purple))
             : _currentDisplayBytes == null
                 ? _buildEmptyScore()
@@ -777,94 +844,18 @@ class _MainScreenState extends State<MainScreen> {
 
   Widget _buildCanvas() {
     final displayBytes = _currentDisplayBytes!;
-    return LayoutBuilder(
-      builder: (_, constraints) {
-        final size = Size(constraints.maxWidth, constraints.maxHeight);
-        return GestureDetector(
-          onPanStart: (d) => _onPanStart(d, size),
-          onPanUpdate: (d) => _onPanUpdate(d, size),
-          onPanEnd: (_) => _onPanEnd(size),
-          child: Stack(
-            children: [
-              Positioned.fill(
-                  child: Image.memory(displayBytes, fit: BoxFit.contain)),
-              Positioned.fill(
-                child: CustomPaint(
-                  painter: _DrawingPainter(
-                    strokes: _strokes,
-                    currentStroke: _currentStroke,
-                  ),
-                ),
-              ),
-              if (_isPdf) ..._buildPdfControls(),
-            ],
-          ),
-        );
-      },
+    return ScoreCanvas(
+      displayBytes: displayBytes,
+      isPdf: _isPdf,
+      currentPdfPage: _currentPdfPage,
+      pdfPageCount: _pdfPageCount,
+      strokes: _strokes,
+      currentStroke: _currentStroke,
+      onPanStart: _onPanStart,
+      onPanUpdate: _onPanUpdate,
+      onPanEnd: _onPanEnd,
+      onPdfPageChanged: _goToPdfPage,
     );
-  }
-
-  List<Widget> _buildPdfControls() {
-    return [
-      Positioned(
-        left: 0,
-        top: 0,
-        bottom: 0,
-        width: 56,
-        child: GestureDetector(
-          behavior: HitTestBehavior.translucent,
-          onTap: _currentPdfPage > 0
-              ? () => setState(() => _currentPdfPage--)
-              : null,
-          child: _currentPdfPage > 0
-              ? const Align(
-                  alignment: Alignment.centerLeft,
-                  child: _PageArrow(icon: Icons.chevron_left_rounded),
-                )
-              : null,
-        ),
-      ),
-      Positioned(
-        right: 0,
-        top: 0,
-        bottom: 0,
-        width: 56,
-        child: GestureDetector(
-          behavior: HitTestBehavior.translucent,
-          onTap: _currentPdfPage < _pdfPages.length - 1
-              ? () => setState(() => _currentPdfPage++)
-              : null,
-          child: _currentPdfPage < _pdfPages.length - 1
-              ? const Align(
-                  alignment: Alignment.centerRight,
-                  child: _PageArrow(icon: Icons.chevron_right_rounded),
-                )
-              : null,
-        ),
-      ),
-      Positioned(
-        bottom: 10,
-        left: 0,
-        right: 0,
-        child: Center(
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.42),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Text(
-              '${_currentPdfPage + 1} / ${_pdfPages.length}',
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-        ),
-      ),
-    ];
   }
 
   Widget _buildBottomBar() {
@@ -945,25 +936,6 @@ class _ToolButton extends StatelessWidget {
   }
 }
 
-class _PageArrow extends StatelessWidget {
-  final IconData icon;
-
-  const _PageArrow({required this.icon});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.all(8),
-      padding: const EdgeInsets.all(6),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.35),
-        shape: BoxShape.circle,
-      ),
-      child: Icon(icon, color: Colors.white, size: 22),
-    );
-  }
-}
-
 class _SheetItem extends StatelessWidget {
   final IconData? icon;
   final String label;
@@ -1003,59 +975,4 @@ class _SheetItem extends StatelessWidget {
       onTap: onTap,
     );
   }
-}
-
-class _DrawingPainter extends CustomPainter {
-  final List<Stroke> strokes;
-  final Stroke? currentStroke;
-
-  const _DrawingPainter({
-    required this.strokes,
-    required this.currentStroke,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    canvas.saveLayer(Offset.zero & size, Paint());
-    for (final stroke in [
-      ...strokes,
-      if (currentStroke != null) currentStroke!
-    ]) {
-      _drawStroke(canvas, size, stroke);
-    }
-    canvas.restore();
-  }
-
-  void _drawStroke(Canvas canvas, Size size, Stroke stroke) {
-    if (stroke.points.isEmpty) return;
-
-    final paint = Paint()
-      ..color = stroke.isEraser
-          ? Colors.white
-          : stroke.isHighlighter
-              ? stroke.color.withValues(alpha: 0.28)
-              : stroke.color
-      ..strokeWidth = stroke.width
-      ..strokeCap = stroke.isHighlighter ? StrokeCap.square : StrokeCap.round
-      ..strokeJoin = StrokeJoin.round
-      ..style = PaintingStyle.stroke
-      ..blendMode = stroke.isEraser ? BlendMode.clear : BlendMode.srcOver;
-
-    final pts = stroke.points
-        .map((p) => Offset(p.dx * size.width, p.dy * size.height))
-        .toList();
-    if (pts.length == 1) {
-      canvas.drawCircle(
-          pts[0], stroke.width / 2, paint..style = PaintingStyle.fill);
-      return;
-    }
-    final path = Path()..moveTo(pts[0].dx, pts[0].dy);
-    for (var i = 1; i < pts.length; i++) {
-      path.lineTo(pts[i].dx, pts[i].dy);
-    }
-    canvas.drawPath(path, paint);
-  }
-
-  @override
-  bool shouldRepaint(covariant _DrawingPainter oldDelegate) => true;
 }
