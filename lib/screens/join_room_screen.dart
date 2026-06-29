@@ -12,7 +12,7 @@ class JoinRoomScreen extends StatefulWidget {
 }
 
 class _JoinRoomScreenState extends State<JoinRoomScreen> {
-  static const _purple = Color(0xFF8B5CF6);
+  static const _primary = Color(0xFF0F766E);
 
   final _codeController = TextEditingController();
   final _focusNode = FocusNode();
@@ -77,7 +77,7 @@ class _JoinRoomScreenState extends State<JoinRoomScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF3A3A3A),
+      backgroundColor: const Color(0xFFE8F3F1),
       body: SafeArea(
         child: Center(
           child: Container(
@@ -160,7 +160,7 @@ class _JoinRoomScreenState extends State<JoinRoomScreen> {
                     child: FilledButton(
                       onPressed: _isComplete && !_isLoading ? _onJoin : null,
                       style: FilledButton.styleFrom(
-                        backgroundColor: _purple,
+                        backgroundColor: _primary,
                         disabledBackgroundColor: const Color(0xFFD1D5DB),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(14),
@@ -192,7 +192,7 @@ class _JoinRoomScreenState extends State<JoinRoomScreen> {
   }
 }
 
-// 6자리 코드 입력 위젯 
+// 6자리 코드 입력 위젯
 // 비어있으면 '0' (회색), 입력하면 해당 문자 (검정)로 교체
 class _SixDigitInput extends StatelessWidget {
   final TextEditingController controller;
@@ -205,7 +205,7 @@ class _SixDigitInput extends StatelessWidget {
     required this.onSubmit,
   });
 
-  static const _purple = Color(0xFF8B5CF6);
+  static const _primary = Color(0xFF0F766E);
 
   @override
   Widget build(BuildContext context) {
@@ -223,8 +223,8 @@ class _SixDigitInput extends StatelessWidget {
             textCapitalization: TextCapitalization.characters,
             inputFormatters: [
               FilteringTextInputFormatter.allow(RegExp(r'[a-zA-Z0-9]')),
-              TextInputFormatter.withFunction((old, val) =>
-                  val.copyWith(text: val.text.toUpperCase())),
+              TextInputFormatter.withFunction(
+                  (old, val) => val.copyWith(text: val.text.toUpperCase())),
             ],
             onSubmitted: (_) => onSubmit(),
             decoration: const InputDecoration(counterText: ''),
@@ -245,7 +245,7 @@ class _SixDigitInput extends StatelessWidget {
                 height: 64,
                 decoration: BoxDecoration(
                   border: Border.all(
-                    color: isFocused ? _purple : const Color(0xFFD1D5DB),
+                    color: isFocused ? _primary : const Color(0xFFD1D5DB),
                     width: isFocused ? 1.5 : 1.0,
                   ),
                   borderRadius: BorderRadius.circular(14),

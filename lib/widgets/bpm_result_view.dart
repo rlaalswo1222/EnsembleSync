@@ -23,7 +23,7 @@ class BpmResultView extends StatefulWidget {
 }
 
 class _BpmResultViewState extends State<BpmResultView> {
-  static const _purple = Color(0xFF8B5CF6);
+  static const _primary = Color(0xFF0F766E);
   static const _blue = Color(0xFF3B82F6);
   static const _red = Color(0xFFEF4444);
 
@@ -166,8 +166,8 @@ class _BpmResultViewState extends State<BpmResultView> {
               _StatChip(
                 label: '평균',
                 value: result.avgBpm.toInt().toString(),
-                color: const Color(0xFFEDE9FE),
-                textColor: _purple,
+                color: const Color(0xFFCCFBF1),
+                textColor: _primary,
               ),
               const SizedBox(width: 8),
               _StatChip(
@@ -227,7 +227,7 @@ class _BpmResultViewState extends State<BpmResultView> {
                   width: 36,
                   height: 36,
                   decoration: const BoxDecoration(
-                    color: _purple,
+                    color: _primary,
                     shape: BoxShape.circle,
                   ),
                   child: Icon(
@@ -246,9 +246,9 @@ class _BpmResultViewState extends State<BpmResultView> {
                         const RoundSliderThumbShape(enabledThumbRadius: 8),
                     overlayShape:
                         const RoundSliderOverlayShape(overlayRadius: 14),
-                    activeTrackColor: _purple,
+                    activeTrackColor: _primary,
                     inactiveTrackColor: const Color(0xFFE5E7EB),
-                    thumbColor: _purple,
+                    thumbColor: _primary,
                   ),
                   child: Slider(
                     value: _playPosition,
@@ -270,7 +270,7 @@ class _BpmResultViewState extends State<BpmResultView> {
                 style: const TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
-                  color: _purple,
+                  color: _primary,
                 ),
               ),
             ],
@@ -340,7 +340,7 @@ class _BpmGraphPainter extends CustomPainter {
   final double baseBpm;
   final double playPosition;
 
-  static const _purple = Color(0xFF8B5CF6);
+  static const _primary = Color(0xFF0F766E);
   static const _grey = Color(0xFFE5E7EB);
 
   _BpmGraphPainter({
@@ -397,7 +397,7 @@ class _BpmGraphPainter extends CustomPainter {
     canvas.drawPath(dashPath, basePaint);
 
     final linePaint = Paint()
-      ..color = _purple
+      ..color = _primary
       ..strokeWidth = 2
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round
@@ -430,7 +430,7 @@ class _BpmGraphPainter extends CustomPainter {
         ..strokeWidth = 1,
     );
 
-    canvas.drawCircle(Offset(curX, curY), 6, Paint()..color = _purple);
+    canvas.drawCircle(Offset(curX, curY), 6, Paint()..color = _primary);
     _drawText(
       canvas,
       '현재 ${curBpmPoint.bpm.toInt()}',

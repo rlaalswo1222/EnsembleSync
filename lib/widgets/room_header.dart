@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
 class RoomHeader extends StatelessWidget {
-  static const _purple = Color(0xFF8B5CF6);
+  static const _primary = Color(0xFF0F766E);
   static const _avatarColors = [
-    Color(0xFF8B5CF6),
+    Color(0xFF0F766E),
     Color(0xFFEC4899),
     Color(0xFF10B981),
     Color(0xFFF59E0B),
@@ -37,7 +37,7 @@ class RoomHeader extends StatelessWidget {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFF3F0FF),
+                  color: const Color(0xFFF0FDFA),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
@@ -45,7 +45,7 @@ class RoomHeader extends StatelessWidget {
                   style: const TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.bold,
-                    color: _purple,
+                    color: _primary,
                     letterSpacing: 1.5,
                   ),
                 ),

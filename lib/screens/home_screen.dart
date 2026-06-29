@@ -12,7 +12,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen>
     with SingleTickerProviderStateMixin {
-  static const _purple = Color(0xFF8B5CF6);
+  static const _primary = Color(0xFF0F766E);
 
   final _nicknameController = TextEditingController();
   final _roomNameController = TextEditingController();
@@ -64,7 +64,8 @@ class _HomeScreenState extends State<HomeScreen>
       final roomName = _roomNameController.text.trim().isEmpty
           ? '${_nicknameController.text.trim()}의 방'
           : _roomNameController.text.trim();
-      final result = await ApiService().createRoom(roomName, _nicknameController.text.trim());
+      final result = await ApiService()
+          .createRoom(roomName, _nicknameController.text.trim());
       if (!mounted) return;
       FocusScope.of(context).unfocus();
       Navigator.pushAndRemoveUntil(
@@ -95,7 +96,8 @@ class _HomeScreenState extends State<HomeScreen>
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => JoinRoomScreen(nickname: _nicknameController.text.trim()),
+        builder: (_) =>
+            JoinRoomScreen(nickname: _nicknameController.text.trim()),
       ),
     );
   }
@@ -113,7 +115,7 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF3A3A3A),
+      backgroundColor: const Color(0xFFE8F3F1),
       body: SafeArea(
         child: Center(
           child: Container(
@@ -131,7 +133,7 @@ class _HomeScreenState extends State<HomeScreen>
                 const Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(Icons.music_note_rounded, color: _purple, size: 36),
+                    Icon(Icons.music_note_rounded, color: _primary, size: 36),
                     SizedBox(width: 8),
                     Text(
                       'Ensemble',
@@ -182,18 +184,16 @@ class _HomeScreenState extends State<HomeScreen>
                           horizontal: 16, vertical: 14),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(10),
-                        borderSide:
-                            const BorderSide(color: Color(0xFFE5E7EB)),
+                        borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
                       ),
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(10),
-                        borderSide:
-                            const BorderSide(color: Color(0xFFE5E7EB)),
+                        borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(10),
                         borderSide:
-                            const BorderSide(color: _purple, width: 1.5),
+                            const BorderSide(color: _primary, width: 1.5),
                       ),
                     ),
                   ),
@@ -219,7 +219,8 @@ class _HomeScreenState extends State<HomeScreen>
                   textInputAction: TextInputAction.done,
                   decoration: InputDecoration(
                     hintText: '비워두면 "닉네임의 방"으로 설정됩니다',
-                    hintStyle: const TextStyle(color: Color(0xFFBDBDBD), fontSize: 12),
+                    hintStyle:
+                        const TextStyle(color: Color(0xFFBDBDBD), fontSize: 12),
                     counterText: '',
                     contentPadding: const EdgeInsets.symmetric(
                         horizontal: 16, vertical: 14),
@@ -233,7 +234,7 @@ class _HomeScreenState extends State<HomeScreen>
                     ),
                     focusedBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
-                      borderSide: const BorderSide(color: _purple, width: 1.5),
+                      borderSide: const BorderSide(color: _primary, width: 1.5),
                     ),
                   ),
                 ),
@@ -246,7 +247,7 @@ class _HomeScreenState extends State<HomeScreen>
                   child: FilledButton.icon(
                     onPressed: _isLoading ? null : _onCreateRoom,
                     style: FilledButton.styleFrom(
-                      backgroundColor: _purple,
+                      backgroundColor: _primary,
                       disabledBackgroundColor: const Color(0xFFD1D5DB),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
@@ -301,8 +302,7 @@ class _HomeScreenState extends State<HomeScreen>
                   duration: const Duration(milliseconds: 200),
                   child: const Text(
                     '닉네임을 입력하여 시작하세요',
-                    style:
-                        TextStyle(fontSize: 12, color: Color(0xFF9CA3AF)),
+                    style: TextStyle(fontSize: 12, color: Color(0xFF9CA3AF)),
                   ),
                 ),
               ],

@@ -34,7 +34,7 @@ class MainScreen extends StatefulWidget {
 }
 
 class _MainScreenState extends State<MainScreen> {
-  static const _purple = Color(0xFF8B5CF6);
+  static const _primary = Color(0xFF0F766E);
   static const _shareChannel = MethodChannel('ensemble_sync/share');
 
   late final WebSocketService _ws;
@@ -42,7 +42,7 @@ class _MainScreenState extends State<MainScreen> {
   final Map<int, List<Stroke>> _pageStrokes = {};
   Stroke? _currentStroke;
   DrawTool _tool = DrawTool.pen;
-  Color _penColor = _purple;
+  Color _penColor = _primary;
   final double _penWidth = 3.0;
 
   final List<Map<String, dynamic>> _participants = [];
@@ -360,7 +360,7 @@ class _MainScreenState extends State<MainScreen> {
       uiSettings: [
         AndroidUiSettings(
           toolbarTitle: '영역 선택',
-          toolbarColor: _purple,
+          toolbarColor: _primary,
           toolbarWidgetColor: Colors.white,
           initAspectRatio: CropAspectRatioPreset.original,
           lockAspectRatio: false,
@@ -389,7 +389,7 @@ class _MainScreenState extends State<MainScreen> {
       points: pts,
       color: Color(
         int.parse(
-              (payload['color'] as String? ?? '#8B5CF6').replaceFirst('#', ''),
+              (payload['color'] as String? ?? '#0F766E').replaceFirst('#', ''),
               radix: 16,
             ) |
             0xFF000000,
@@ -485,7 +485,7 @@ class _MainScreenState extends State<MainScreen> {
 
   void _showColorPicker() {
     final colors = [
-      _purple,
+      _primary,
       const Color(0xFFEC4899),
       const Color(0xFF10B981),
       const Color(0xFFF59E0B),
@@ -518,7 +518,7 @@ class _MainScreenState extends State<MainScreen> {
                   color: color,
                   shape: BoxShape.circle,
                   border: Border.all(
-                    color: selected ? _purple : Colors.grey.shade300,
+                    color: selected ? _primary : Colors.grey.shade300,
                     width: selected ? 3 : 1,
                   ),
                 ),
@@ -658,7 +658,7 @@ class _MainScreenState extends State<MainScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF3A3A3A),
+      backgroundColor: const Color(0xFFE8F3F1),
       resizeToAvoidBottomInset: false,
       body: SafeArea(
         child: Center(
@@ -707,7 +707,7 @@ class _MainScreenState extends State<MainScreen> {
           _ToolButton(
             icon: Icons.edit_rounded,
             selected: _tool == DrawTool.pen,
-            color: _purple,
+            color: _primary,
             onTap: () => setState(() => _tool = DrawTool.pen),
           ),
           const SizedBox(width: 4),
@@ -721,7 +721,7 @@ class _MainScreenState extends State<MainScreen> {
           _ToolButton(
             icon: Icons.auto_fix_normal_rounded,
             selected: _tool == DrawTool.eraser,
-            color: _purple,
+            color: _primary,
             onTap: () => setState(() => _tool = DrawTool.eraser),
           ),
           const SizedBox(width: 8),
@@ -741,7 +741,7 @@ class _MainScreenState extends State<MainScreen> {
           _ToolButton(
             icon: Icons.upload_rounded,
             selected: false,
-            color: _purple,
+            color: _primary,
             onTap: _showUploadSheet,
           ),
         ],
@@ -798,7 +798,7 @@ class _MainScreenState extends State<MainScreen> {
         ),
         clipBehavior: Clip.hardEdge,
         child: _isLoadingPdf || (_isPdf && _currentDisplayBytes == null)
-            ? const Center(child: CircularProgressIndicator(color: _purple))
+            ? const Center(child: CircularProgressIndicator(color: _primary))
             : _currentDisplayBytes == null
                 ? _buildEmptyScore()
                 : _buildCanvas(),
@@ -828,7 +828,7 @@ class _MainScreenState extends State<MainScreen> {
           ElevatedButton.icon(
             onPressed: _showUploadSheet,
             style: ElevatedButton.styleFrom(
-              backgroundColor: _purple,
+              backgroundColor: _primary,
               foregroundColor: Colors.white,
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12)),
@@ -883,14 +883,14 @@ class _MainScreenState extends State<MainScreen> {
                     Icon(
                       entry.value['icon'] as IconData,
                       size: 22,
-                      color: selected ? _purple : const Color(0xFF9CA3AF),
+                      color: selected ? _primary : const Color(0xFF9CA3AF),
                     ),
                     const SizedBox(height: 2),
                     Text(
                       entry.value['label'] as String,
                       style: TextStyle(
                         fontSize: 11,
-                        color: selected ? _purple : const Color(0xFF9CA3AF),
+                        color: selected ? _primary : const Color(0xFF9CA3AF),
                         fontWeight:
                             selected ? FontWeight.w600 : FontWeight.normal,
                       ),

@@ -34,7 +34,7 @@ class AnalysisTab extends StatefulWidget {
 }
 
 class _AnalysisTabState extends State<AnalysisTab> {
-  static const _purple = Color(0xFF8B5CF6);
+  static const _primary = Color(0xFF0F766E);
 
   Uint8List? _audioBytes;
   String? _audioFilename;
@@ -166,7 +166,7 @@ class _AnalysisTabState extends State<AnalysisTab> {
             onPressed: () => Navigator.pop(context),
             child: const Text(
               '확인',
-              style: TextStyle(color: _purple, fontWeight: FontWeight.w600),
+              style: TextStyle(color: _primary, fontWeight: FontWeight.w600),
             ),
           ),
         ],
@@ -319,12 +319,12 @@ class _AnalysisTabState extends State<AnalysisTab> {
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        color: const Color(0xFFF3F0FF),
+        color: const Color(0xFFF0FDFA),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
         children: [
-          const Icon(Icons.audio_file_rounded, color: _purple, size: 20),
+          const Icon(Icons.audio_file_rounded, color: _primary, size: 20),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
@@ -378,10 +378,10 @@ class _AnalysisTabState extends State<AnalysisTab> {
                 width: 40,
                 height: 40,
                 decoration: const BoxDecoration(
-                  color: Color(0xFFF3F0FF),
+                  color: Color(0xFFF0FDFA),
                   shape: BoxShape.circle,
                 ),
-                child: Icon(icon, color: _purple, size: 20),
+                child: Icon(icon, color: _primary, size: 20),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -414,7 +414,7 @@ class _AnalysisTabState extends State<AnalysisTab> {
             else
               _ActionButton(
                 label: buttonLabel,
-                color: hasFile ? _purple : const Color(0xFFD1D5DB),
+                color: hasFile ? _primary : const Color(0xFFD1D5DB),
                 onTap: hasFile ? onStart : null,
               ),
           if (state == AnalysisState.loading) ...[
@@ -426,7 +426,7 @@ class _AnalysisTabState extends State<AnalysisTab> {
                   child: LinearProgressIndicator(
                     value: progressValue > 0 ? progressValue : null,
                     backgroundColor: const Color(0xFFE5E7EB),
-                    valueColor: const AlwaysStoppedAnimation(_purple),
+                    valueColor: const AlwaysStoppedAnimation(_primary),
                     minHeight: 44,
                   ),
                 ),
@@ -469,7 +469,7 @@ class _AnalysisTabState extends State<AnalysisTab> {
               ),
             ),
             const SizedBox(height: 8),
-            _ActionButton(label: '결과 보기', color: _purple, onTap: onResult),
+            _ActionButton(label: '결과 보기', color: _primary, onTap: onResult),
           ],
         ],
       ),

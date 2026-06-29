@@ -103,7 +103,7 @@ class _ResultTabState extends State<ResultTab> {
   Widget build(BuildContext context) {
     if (_isLoading) {
       return const Center(
-        child: CircularProgressIndicator(color: Color(0xFF8B5CF6)),
+        child: CircularProgressIndicator(color: Color(0xFF0F766E)),
       );
     }
 

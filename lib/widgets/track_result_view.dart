@@ -22,7 +22,7 @@ class TrackResultView extends StatefulWidget {
 }
 
 class _TrackResultViewState extends State<TrackResultView> {
-  static const _purple = Color(0xFF8B5CF6);
+  static const _primary = Color(0xFF0F766E);
 
   final _trackPlayer = AudioPlayer();
   Duration _trackPosition = Duration.zero;
@@ -130,11 +130,11 @@ class _TrackResultViewState extends State<TrackResultView> {
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
-        color: const Color(0xFFF9F7FF),
+        color: const Color(0xFFF0FDFA),
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
           color: isActive
-              ? _purple.withValues(alpha: 0.4)
+              ? _primary.withValues(alpha: 0.4)
               : const Color(0xFFE5E7EB),
         ),
       ),
@@ -146,10 +146,10 @@ class _TrackResultViewState extends State<TrackResultView> {
                 width: 36,
                 height: 36,
                 decoration: const BoxDecoration(
-                  color: Color(0xFFEDE9FE),
+                  color: Color(0xFFCCFBF1),
                   shape: BoxShape.circle,
                 ),
-                child: Icon(track.icon, color: _purple, size: 18),
+                child: Icon(track.icon, color: _primary, size: 18),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -167,7 +167,7 @@ class _TrackResultViewState extends State<TrackResultView> {
                   width: 36,
                   height: 36,
                   decoration: const BoxDecoration(
-                    color: _purple,
+                    color: _primary,
                     shape: BoxShape.circle,
                   ),
                   child: Icon(
@@ -203,7 +203,7 @@ class _TrackResultViewState extends State<TrackResultView> {
                   height: 14,
                   child: CircularProgressIndicator(
                     strokeWidth: 2,
-                    color: _purple,
+                    color: _primary,
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -232,9 +232,9 @@ class _TrackResultViewState extends State<TrackResultView> {
                           const RoundSliderThumbShape(enabledThumbRadius: 7),
                       overlayShape:
                           const RoundSliderOverlayShape(overlayRadius: 12),
-                      activeTrackColor: _purple,
+                      activeTrackColor: _primary,
                       inactiveTrackColor: const Color(0xFFE5E7EB),
-                      thumbColor: _purple,
+                      thumbColor: _primary,
                     ),
                     child: Slider(
                       value: _trackPlayPosition,
@@ -256,7 +256,7 @@ class _TrackResultViewState extends State<TrackResultView> {
                   style: const TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
-                    color: _purple,
+                    color: _primary,
                   ),
                 ),
               ],
