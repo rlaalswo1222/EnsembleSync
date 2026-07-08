@@ -18,9 +18,10 @@ class EnsembleSyncApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF8B5CF6),
+          seedColor: const Color(0xFF0F766E),
           brightness: Brightness.light,
         ),
+        scaffoldBackgroundColor: const Color(0xFFF8FAFC),
         useMaterial3: true,
         fontFamily: 'Pretendard',
       ),

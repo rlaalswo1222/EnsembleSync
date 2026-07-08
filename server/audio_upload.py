@@ -4,12 +4,22 @@ from database import get_db
 import uuid
 import shutil
 import os
+import json
+import redis
 
 router = APIRouter()
 
 ALLOWED_EXTENSIONS = {'mp3', 'wav', 'flac', 'm4a'}
 ALLOWED_PURPOSES = {'bpm', 'pitch', 'separation'}
 UPLOAD_DIR = "uploads/audio"
+redis_client = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
+
+
+def publish_room_event(room_id: str, message: dict):
+    try:
+        redis_client.publish(f"room_{room_id}", json.dumps(message))
+    except Exception:
+        pass
 
 @router.post("/api/audio/{room_id}/upload")
 async def upload_audio(
@@ -71,6 +81,17 @@ async def upload_audio(
         )
         conn.commit()
         cur.close()
+
+        publish_room_event(room_id, {
+            "type": "audio_uploaded",
+            "payload": {
+                "room_id": room_id,
+                "audio_file_id": audio_id,
+                "file_url": file_url,
+                "filename": file.filename,
+                "purpose": purpose,
+            },
+        })
 
         return {
             "status": 200,

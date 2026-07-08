@@ -1,18 +1,13 @@
 import 'dart:async';
 import 'dart:typed_data';
-import 'package:flutter/material.dart';
+
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/material.dart';
+
 import '../services/api_service.dart';
 import '../services/websocket_service.dart';
 
 enum AnalysisState { idle, loading, done }
-
-class TrackResult {
-  final String label;
-  final String url;
-  final IconData icon;
-  TrackResult({required this.label, required this.url, required this.icon});
-}
 
 class AnalysisTab extends StatefulWidget {
   final String roomId;
@@ -39,10 +34,12 @@ class AnalysisTab extends StatefulWidget {
 }
 
 class _AnalysisTabState extends State<AnalysisTab> {
-  static const _purple = Color(0xFF8B5CF6);
+  static const _primary = Color(0xFF0F766E);
 
   Uint8List? _audioBytes;
   String? _audioFilename;
+  String? _audioFileId;
+  bool _isUploadingAudio = false;
 
   AnalysisState _bpmState = AnalysisState.idle;
   AnalysisState _pitchState = AnalysisState.idle;
@@ -64,9 +61,64 @@ class _AnalysisTabState extends State<AnalysisTab> {
     super.dispose();
   }
 
+  Map<String, dynamic> _payloadFor(WsEvent event) {
+    final payload = event.data['payload'];
+    if (payload is Map<String, dynamic>) return payload;
+    return event.data;
+  }
+
+  bool _belongsToCurrentRoom(Map<String, dynamic> payload) {
+    final eventRoomId = payload['room_id'] as String?;
+    return eventRoomId == null || eventRoomId == widget.roomId;
+  }
+
   void _listenWs() {
     widget.ws.events.listen((event) {
-      if (event.type == WsEventType.bpmAnalyzed) {
+      if (event.type == WsEventType.audioUploaded) {
+        final payload = _payloadFor(event);
+        if (!_belongsToCurrentRoom(payload)) return;
+        final filename = payload['filename'] as String?;
+        final audioFileId = payload['audio_file_id'] as String?;
+        if (filename == null || !mounted) return;
+
+        setState(() {
+          final isAnalyzing = _trackState == AnalysisState.loading ||
+              _bpmState == AnalysisState.loading ||
+              _pitchState == AnalysisState.loading;
+          if (_audioFilename != filename) {
+            _audioBytes = null;
+          }
+          _audioFilename = filename;
+          _audioFileId = audioFileId;
+          _isUploadingAudio = false;
+          if (!isAnalyzing) {
+            _bpmState = AnalysisState.idle;
+            _pitchState = AnalysisState.idle;
+            _trackState = AnalysisState.idle;
+            _trackProgress = 0.0;
+            _trackJobId = null;
+          }
+        });
+      } else if (event.type == WsEventType.analysisStarted) {
+        final payload = _payloadFor(event);
+        if (!_belongsToCurrentRoom(payload)) return;
+        final jobType = payload['job_type'] as String?;
+        final jobId = payload['job_id'] as String?;
+        if (!mounted) return;
+
+        setState(() {
+          if (jobType == 'bpm') {
+            _bpmTimeoutTimer?.cancel();
+            _bpmTimeoutTimer = null;
+            _bpmState = AnalysisState.loading;
+          } else if (jobType == 'separation') {
+            _audioFileId ??= payload['audio_file_id'] as String?;
+            _trackState = AnalysisState.loading;
+            _trackProgress = 0.0;
+            _trackJobId = jobId;
+          }
+        });
+      } else if (event.type == WsEventType.bpmAnalyzed) {
         _bpmTimeoutTimer?.cancel();
         _bpmTimeoutTimer = null;
         final jobId = event.data['job_id'] as String?;
@@ -76,20 +128,30 @@ class _AnalysisTabState extends State<AnalysisTab> {
           widget.onGoToResult();
         }
       } else if (event.type == WsEventType.trackSeparated) {
-        // 현재 로딩 중일 때만 done 처리 (구 작업 이벤트 무시)
-        if (mounted && _trackState == AnalysisState.loading) {
+        final payload = _payloadFor(event);
+        if (!_belongsToCurrentRoom(payload)) return;
+        if (mounted) {
           setState(() {
             _trackState = AnalysisState.done;
             _trackProgress = 1.0;
+            _trackJobId = null;
           });
+          (widget.onGoToTrackResult ?? widget.onGoToResult)();
         }
       } else if (event.type == WsEventType.separationProgress) {
         final eventJobId = event.data['job_id'] as String?;
-        // 현재 작업의 이벤트만 처리
-        if (_trackJobId != null && eventJobId != null && eventJobId != _trackJobId) return;
+        if (_trackJobId != null &&
+            eventJobId != null &&
+            eventJobId != _trackJobId) {
+          return;
+        }
         final progress = (event.data['progress'] as num?)?.toDouble() ?? 0;
-        if (mounted && _trackState == AnalysisState.loading) {
-          setState(() => _trackProgress = progress / 100.0);
+        if (mounted) {
+          setState(() {
+            _trackState = AnalysisState.loading;
+            _trackJobId ??= eventJobId;
+            _trackProgress = progress / 100.0;
+          });
         }
       }
     });
@@ -107,31 +169,81 @@ class _AnalysisTabState extends State<AnalysisTab> {
       setState(() {
         _audioBytes = bytes;
         _audioFilename = filename;
+        _audioFileId = null;
+        _isUploadingAudio = true;
         _bpmState = AnalysisState.idle;
         _pitchState = AnalysisState.idle;
         _trackState = AnalysisState.idle;
         _trackProgress = 0.0;
+        _trackJobId = null;
       });
       widget.onAudioPicked?.call(bytes, filename);
+      await _uploadSelectedAudio(bytes, filename);
     }
   }
 
-  Future<void> _startBpm() async {
-    if (_audioBytes == null) return;
-    setState(() => _bpmState = AnalysisState.loading);
+  Future<void> _uploadSelectedAudio(Uint8List bytes, String filename) async {
+    try {
+      final uploadResult = await ApiService().uploadAudio(
+        roomId: widget.roomId,
+        bytes: bytes,
+        filename: filename,
+        purpose: 'separation',
+      );
+      if (!mounted) return;
+      setState(() {
+        _audioFileId = uploadResult['audio_file_id'] as String?;
+        _isUploadingAudio = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _audioFileId = null;
+        _isUploadingAudio = false;
+      });
+      _showError('음원 업로드 실패: $e');
+    }
+  }
+
+  Future<String?> _ensureAudioUploaded(String purpose) async {
+    if (_audioFileId != null) return _audioFileId;
+    if (_audioBytes == null || _audioFilename == null) return null;
+
+    setState(() => _isUploadingAudio = true);
     try {
       final uploadResult = await ApiService().uploadAudio(
         roomId: widget.roomId,
         bytes: _audioBytes!,
         filename: _audioFilename!,
-        purpose: 'bpm',
+        purpose: purpose,
       );
-      final audioFileId = uploadResult['audio_file_id'] as String;
+      final audioFileId = uploadResult['audio_file_id'] as String?;
+      if (mounted) {
+        setState(() {
+          _audioFileId = audioFileId;
+          _isUploadingAudio = false;
+        });
+      }
+      return audioFileId;
+    } catch (_) {
+      if (mounted) {
+        setState(() => _isUploadingAudio = false);
+      }
+      rethrow;
+    }
+  }
+
+  Future<void> _startBpm() async {
+    setState(() => _bpmState = AnalysisState.loading);
+    try {
+      final audioFileId = await _ensureAudioUploaded('bpm');
+      if (audioFileId == null) {
+        throw Exception('업로드된 음원 파일이 없습니다.');
+      }
       await ApiService().startBpmAnalysis(
         roomId: widget.roomId,
         audioFileId: audioFileId,
       );
-      // WS bpm_analyzed 이벤트가 오지 않으면 60초 후 타임아웃
       _bpmTimeoutTimer?.cancel();
       _bpmTimeoutTimer = Timer(const Duration(seconds: 60), () {
         if (mounted && _bpmState == AnalysisState.loading) {
@@ -152,17 +264,21 @@ class _AnalysisTabState extends State<AnalysisTab> {
       context: context,
       builder: (_) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('미구현 기능',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+        title: const Text(
+          '미구현 기능',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+        ),
         content: const Text(
-          '피치 분석 기능은 현재 개발 중입니다.\n추후 업데이트를 통해 제공될 예정입니다.',
+          '피치 분석 기능은 현재 개발 중입니다.',
           style: TextStyle(fontSize: 14, color: Color(0xFF6B7280)),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('확인',
-                style: TextStyle(color: Color(0xFF8B5CF6), fontWeight: FontWeight.w600)),
+            child: const Text(
+              '확인',
+              style: TextStyle(color: _primary, fontWeight: FontWeight.w600),
+            ),
           ),
         ],
       ),
@@ -170,30 +286,37 @@ class _AnalysisTabState extends State<AnalysisTab> {
   }
 
   Future<void> _startTrack() async {
-    if (_audioBytes == null) return;
     setState(() {
       _trackState = AnalysisState.loading;
       _trackProgress = 0.0;
       _trackJobId = null;
     });
     try {
-      final result = await ApiService().requestTrackSeparation(
+      final audioFileId = await _ensureAudioUploaded('separation');
+      if (audioFileId == null) {
+        throw Exception('업로드된 음원 파일이 없습니다.');
+      }
+      final result = await ApiService().startAnalysis(
         roomId: widget.roomId,
-        bytes: _audioBytes!,
-        filename: _audioFilename!,
+        audioFileId: audioFileId,
+        jobType: 'separation',
       );
       final jobId = result['job_id'] as String?;
-      // 요청 대기 중에 취소됐으면 서버 작업도 즉시 취소
       if (!mounted || _trackState != AnalysisState.loading) {
-        if (jobId != null) ApiService().cancelAnalysis(jobId).catchError((_) {});
+        if (jobId != null) {
+          ApiService().cancelAnalysis(jobId).catchError((_) {});
+        }
         return;
       }
-      if (jobId != null) setState(() => _trackJobId = jobId);
+      if (jobId != null) {
+        setState(() => _trackJobId = jobId);
+      }
     } catch (e) {
       if (mounted) {
         setState(() {
           _trackState = AnalysisState.idle;
           _trackProgress = 0.0;
+          _trackJobId = null;
         });
         _showError('트랙 분리 요청 실패: $e');
       }
@@ -203,6 +326,24 @@ class _AnalysisTabState extends State<AnalysisTab> {
   void _cancelTrack() {
     final jobId = _trackJobId;
     setState(() {
+      _trackState = AnalysisState.idle;
+      _trackProgress = 0.0;
+      _trackJobId = null;
+    });
+    if (jobId != null) {
+      ApiService().cancelAnalysis(jobId).catchError((_) {});
+    }
+  }
+
+  void _clearAudio() {
+    final jobId = _trackState == AnalysisState.loading ? _trackJobId : null;
+    setState(() {
+      _audioBytes = null;
+      _audioFilename = null;
+      _audioFileId = null;
+      _isUploadingAudio = false;
+      _bpmState = AnalysisState.idle;
+      _pitchState = AnalysisState.idle;
       _trackState = AnalysisState.idle;
       _trackProgress = 0.0;
       _trackJobId = null;
@@ -236,6 +377,7 @@ class _AnalysisTabState extends State<AnalysisTab> {
             onCancel: _cancelTrack,
             buttonLabel: '분리 시작',
             progressValue: _trackProgress,
+            enabled: !_isUploadingAudio,
           ),
           const SizedBox(height: 12),
           _buildAnalysisCard(
@@ -246,7 +388,7 @@ class _AnalysisTabState extends State<AnalysisTab> {
             onStart: _startBpm,
             onResult: widget.onGoToResult,
             onCancel: () => setState(() => _bpmState = AnalysisState.idle),
-            enabled: _trackState == AnalysisState.done,
+            enabled: !_isUploadingAudio && _trackState == AnalysisState.done,
           ),
           const SizedBox(height: 12),
           _buildAnalysisCard(
@@ -257,7 +399,7 @@ class _AnalysisTabState extends State<AnalysisTab> {
             onStart: _startPitch,
             onResult: widget.onGoToResult,
             onCancel: () => setState(() => _pitchState = AnalysisState.idle),
-            enabled: _trackState == AnalysisState.done,
+            enabled: !_isUploadingAudio && _trackState == AnalysisState.done,
           ),
         ],
       ),
@@ -265,7 +407,7 @@ class _AnalysisTabState extends State<AnalysisTab> {
   }
 
   Widget _buildAudioUploadArea() {
-    if (_audioBytes == null) {
+    if (_audioBytes == null && _audioFilename == null) {
       return GestureDetector(
         onTap: _pickAudio,
         child: Container(
@@ -280,8 +422,10 @@ class _AnalysisTabState extends State<AnalysisTab> {
             children: [
               Icon(Icons.upload_rounded, color: Color(0xFF9CA3AF), size: 20),
               SizedBox(width: 8),
-              Text('음원 파일 업로드 (MP3, WAV)',
-                  style: TextStyle(fontSize: 14, color: Color(0xFF6B7280))),
+              Text(
+                '음원 파일 업로드 (MP3, WAV)',
+                style: TextStyle(fontSize: 14, color: Color(0xFF6B7280)),
+              ),
             ],
           ),
         ),
@@ -292,35 +436,28 @@ class _AnalysisTabState extends State<AnalysisTab> {
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        color: const Color(0xFFF3F0FF),
+        color: const Color(0xFFF0FDFA),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
         children: [
-          const Icon(Icons.audio_file_rounded, color: _purple, size: 20),
+          const Icon(Icons.audio_file_rounded, color: _primary, size: 20),
           const SizedBox(width: 10),
           Expanded(
-            child: Text(_audioFilename ?? '',
-                style: const TextStyle(fontSize: 14, color: Color(0xFF1A1A2E), fontWeight: FontWeight.w500),
-                overflow: TextOverflow.ellipsis),
+            child: Text(
+              _audioFilename ?? '',
+              style: const TextStyle(
+                fontSize: 14,
+                color: Color(0xFF1A1A2E),
+                fontWeight: FontWeight.w500,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
           GestureDetector(
-            onTap: () {
-              final jobId = _trackState == AnalysisState.loading ? _trackJobId : null;
-              setState(() {
-                _audioBytes = null;
-                _audioFilename = null;
-                _bpmState = AnalysisState.idle;
-                _pitchState = AnalysisState.idle;
-                _trackState = AnalysisState.idle;
-                _trackProgress = 0.0;
-                _trackJobId = null;
-              });
-              if (jobId != null) {
-                ApiService().cancelAnalysis(jobId).catchError((_) {});
-              }
-            },
-            child: const Icon(Icons.close_rounded, size: 18, color: Color(0xFF9CA3AF)),
+            onTap: _clearAudio,
+            child: const Icon(Icons.close_rounded,
+                size: 18, color: Color(0xFF9CA3AF)),
           ),
         ],
       ),
@@ -339,7 +476,7 @@ class _AnalysisTabState extends State<AnalysisTab> {
     double progressValue = 0.0,
     bool enabled = true,
   }) {
-    final hasFile = _audioBytes != null;
+    final hasAudio = _audioFileId != null || _audioBytes != null;
 
     return Container(
       width: double.infinity,
@@ -355,23 +492,35 @@ class _AnalysisTabState extends State<AnalysisTab> {
           Row(
             children: [
               Container(
-                width: 40, height: 40,
+                width: 40,
+                height: 40,
                 decoration: const BoxDecoration(
-                  color: Color(0xFFF3F0FF), shape: BoxShape.circle),
-                child: Icon(icon, color: _purple, size: 20),
+                  color: Color(0xFFF0FDFA),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(icon, color: _primary, size: 20),
               ),
               const SizedBox(width: 12),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
-                  Text(subtitle, style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280))),
-                ],
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                          fontSize: 15, fontWeight: FontWeight.w700),
+                    ),
+                    Text(
+                      subtitle,
+                      style: const TextStyle(
+                          fontSize: 12, color: Color(0xFF6B7280)),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
           const SizedBox(height: 12),
-
           if (state == AnalysisState.idle)
             if (!enabled)
               const _ActionButton(
@@ -382,10 +531,9 @@ class _AnalysisTabState extends State<AnalysisTab> {
             else
               _ActionButton(
                 label: buttonLabel,
-                color: hasFile ? _purple : const Color(0xFFD1D5DB),
-                onTap: hasFile ? onStart : null,
+                color: hasAudio ? _primary : const Color(0xFFD1D5DB),
+                onTap: hasAudio ? onStart : null,
               ),
-
           if (state == AnalysisState.loading) ...[
             Stack(
               alignment: Alignment.center,
@@ -395,13 +543,19 @@ class _AnalysisTabState extends State<AnalysisTab> {
                   child: LinearProgressIndicator(
                     value: progressValue > 0 ? progressValue : null,
                     backgroundColor: const Color(0xFFE5E7EB),
-                    valueColor: const AlwaysStoppedAnimation(_purple),
+                    valueColor: const AlwaysStoppedAnimation(_primary),
                     minHeight: 44,
                   ),
                 ),
                 Text(
-                  progressValue > 0 ? '${(progressValue * 100).toInt()}%' : '분석 준비 중...',
-                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                  progressValue > 0
+                      ? '${(progressValue * 100).toInt()}%'
+                      : '분석 준비 중...',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
                 ),
               ],
             ),
@@ -412,7 +566,6 @@ class _AnalysisTabState extends State<AnalysisTab> {
               onTap: onCancel,
             ),
           ],
-
           if (state == AnalysisState.done) ...[
             Container(
               width: double.infinity,
@@ -422,13 +575,18 @@ class _AnalysisTabState extends State<AnalysisTab> {
                 borderRadius: BorderRadius.circular(10),
               ),
               child: const Center(
-                child: Text('분석 완료 ✓',
-                    style: TextStyle(
-                        color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14)),
+                child: Text(
+                  '분석 완료 ✓',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 14,
+                  ),
+                ),
               ),
             ),
             const SizedBox(height: 8),
-            _ActionButton(label: '결과 보기', color: _purple, onTap: onResult),
+            _ActionButton(label: '결과 보기', color: _primary, onTap: onResult),
           ],
         ],
       ),
@@ -450,11 +608,19 @@ class _ActionButton extends StatelessWidget {
       child: Container(
         width: double.infinity,
         height: 44,
-        decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(10)),
+        decoration: BoxDecoration(
+          color: color,
+          borderRadius: BorderRadius.circular(10),
+        ),
         child: Center(
-          child: Text(label,
-              style: const TextStyle(
-                  color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14)),
+          child: Text(
+            label,
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w600,
+              fontSize: 14,
+            ),
+          ),
         ),
       ),
     );
