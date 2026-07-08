@@ -42,7 +42,7 @@
   <tr>
     <td width="50%">
       <h3>🎼 실시간 악보 협업</h3>
-      <p>6자리 방 코드로 팀원 전원이 동일한 악보에 실시간 동시 필기합니다. 한 사람의 필기가 모든 참여자 화면에 즉시 반영됩니다.</p>
+      <p>6자리 방 코드로 방에 입장하여, 팀원 전원이 동일한 악보에 실시간 동시 필기합니다. 한 사람의 필기가 모든 참여자 화면에 즉시 반영됩니다.</p>
       <ul>
         <li>펜 / 형광펜 / 화살표 / 텍스트 / 지우개</li>
         <li>색상 5종 및 굵기 조절</li>
@@ -99,7 +99,7 @@
 
 | <img src="https://github.com/rlaalswo1222.png" width="80px" height="80px" style="border-radius:50%"/> | <img src="https://github.com/exponent1121.png" width="80px" height="80px" style="border-radius:50%"/> | <img src="https://github.com/ghost.png" width="80px" height="80px" style="border-radius:50%"/> | <img src="https://github.com/ghost.png" width="80px" height="80px" style="border-radius:50%"/> |
 |:---:|:---:|:---:|:---:|
-| **김민재** | **임지수** | **최기훈** | **문준호** |
+| **김민재(PM)** | **임지수** | **최기훈** | **문준호** |
 | [@rlaalswo1222](https://github.com/rlaalswo1222) | [@exponent1121](https://github.com/exponent1121) | - | - |
 
 </div>
