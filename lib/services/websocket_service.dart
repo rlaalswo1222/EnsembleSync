@@ -11,6 +11,8 @@ enum WsEventType {
   userLeft,
   userList,
   scoreUploaded,
+  audioUploaded,
+  analysisStarted,
   bpmAnalyzed,
   trackSeparated,
   separationProgress,
@@ -25,7 +27,8 @@ class WsEvent {
 
 class WebSocketService {
   WebSocketChannel? _channel;
-  final StreamController<WsEvent> _controller = StreamController<WsEvent>.broadcast();
+  final StreamController<WsEvent> _controller =
+      StreamController<WsEvent>.broadcast();
   Timer? _reconnectTimer;
 
   final String roomId;
@@ -71,17 +74,32 @@ class WebSocketService {
 
   WsEventType _parseType(String t) {
     switch (t) {
-      case 'sync_draw':       return WsEventType.syncDraw;
-      case 'erase':           return WsEventType.erase;
-      case 'clear':           return WsEventType.clear;
-      case 'user_joined':     return WsEventType.userJoined;
-      case 'user_left':       return WsEventType.userLeft;
-      case 'user_list':       return WsEventType.userList;
-      case 'score_uploaded':  return WsEventType.scoreUploaded;
-      case 'bpm_analyzed':    return WsEventType.bpmAnalyzed;
-      case 'track_separated':     return WsEventType.trackSeparated;
-      case 'separation_progress': return WsEventType.separationProgress;
-      default:                    return WsEventType.unknown;
+      case 'sync_draw':
+        return WsEventType.syncDraw;
+      case 'erase':
+        return WsEventType.erase;
+      case 'clear':
+        return WsEventType.clear;
+      case 'user_joined':
+        return WsEventType.userJoined;
+      case 'user_left':
+        return WsEventType.userLeft;
+      case 'user_list':
+        return WsEventType.userList;
+      case 'score_uploaded':
+        return WsEventType.scoreUploaded;
+      case 'audio_uploaded':
+        return WsEventType.audioUploaded;
+      case 'analysis_started':
+        return WsEventType.analysisStarted;
+      case 'bpm_analyzed':
+        return WsEventType.bpmAnalyzed;
+      case 'track_separated':
+        return WsEventType.trackSeparated;
+      case 'separation_progress':
+        return WsEventType.separationProgress;
+      default:
+        return WsEventType.unknown;
     }
   }
 

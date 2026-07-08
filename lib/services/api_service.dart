@@ -164,9 +164,23 @@ class ApiService {
     required String roomId,
     required String audioFileId,
   }) async {
+    return startAnalysis(
+      roomId: roomId,
+      audioFileId: audioFileId,
+      jobType: 'bpm',
+    );
+  }
+
+  Future<Map<String, dynamic>> startAnalysis({
+    required String roomId,
+    required String audioFileId,
+    required String jobType,
+  }) async {
     final uri = Uri.parse('${ApiConstants.baseUrl}/api/analysis/$roomId/start')
-        .replace(
-            queryParameters: {'audio_file_id': audioFileId, 'job_type': 'bpm'});
+        .replace(queryParameters: {
+      'audio_file_id': audioFileId,
+      'job_type': jobType,
+    });
     final response = await _client
         .post(uri, headers: _headers)
         .timeout(const Duration(seconds: 10));
@@ -174,7 +188,7 @@ class ApiService {
       final data = jsonDecode(response.body) as Map<String, dynamic>;
       if (data['status'] == 200) return data;
       throw ApiException(
-          data['status'] as int, data['message'] as String? ?? 'BPM 분석 시작 실패');
+          data['status'] as int, data['message'] as String? ?? '분석 시작 실패');
     }
     throw ApiException(response.statusCode, _parseError(response.body));
   }

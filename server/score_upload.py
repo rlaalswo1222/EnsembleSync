@@ -4,11 +4,21 @@ from database import get_db
 import uuid
 import shutil
 import os
+import json
+import redis
 
 router = APIRouter()
 
 ALLOWED_EXTENSIONS = {'jpg', 'jpeg', 'png', 'pdf'}
 UPLOAD_DIR = "uploads/scores"
+redis_client = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
+
+
+def publish_room_event(room_id: str, message: dict):
+    try:
+        redis_client.publish(f"room_{room_id}", json.dumps(message))
+    except Exception:
+        pass
 
 
 @router.post("/api/score/{room_id}/upload")
@@ -45,6 +55,13 @@ async def upload_score(room_id: str, file: UploadFile = File(...)):
         )
         conn.commit()
         cur.close()
+
+        publish_room_event(room_id, {
+            "type": "score_uploaded",
+            "room_id": room_id,
+            "score_id": score_id,
+            "file_url": file_url,
+        })
 
         return {
             "status": 200,

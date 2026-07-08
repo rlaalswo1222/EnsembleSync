@@ -6,10 +6,20 @@ from celery_app import celery_app
 import uuid
 import shutil
 import os
+import json
+import redis
 
 router = APIRouter()
 
 ALLOWED_AUDIO_EXTENSIONS = {'mp3', 'wav', 'flac', 'm4a'}
+redis_client = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
+
+
+def publish_room_event(room_id: str, message: dict):
+    try:
+        redis_client.publish(f"room_{room_id}", json.dumps(message))
+    except Exception:
+        pass
 
 @router.post("/api/track/separate")
 async def request_track_separation(
@@ -51,6 +61,17 @@ async def request_track_separation(
         )
         conn.commit()
 
+        publish_room_event(room_id, {
+            "type": "audio_uploaded",
+            "payload": {
+                "room_id": room_id,
+                "audio_file_id": audio_id,
+                "file_url": file_url,
+                "filename": file.filename,
+                "purpose": "separation",
+            },
+        })
+
         task = celery_app.send_task(
             "separate_audio_task",
             args=[file_path, room_id, job_id],
@@ -59,6 +80,16 @@ async def request_track_separation(
         cur.execute("UPDATE analysis_job SET celery_task_id = %s WHERE id = %s", (task.id, job_id))
         conn.commit()
         cur.close()
+
+        publish_room_event(room_id, {
+            "type": "analysis_started",
+            "payload": {
+                "room_id": room_id,
+                "job_id": job_id,
+                "job_type": "separation",
+                "audio_file_id": audio_id,
+            },
+        })
 
         return {
             "status": 202,

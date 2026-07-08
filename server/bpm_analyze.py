@@ -131,6 +131,7 @@ def bpm_analysis_task(self, job_id: str, audio_file_id: str):
         redis_client = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
         redis_client.publish(f"room_{room_id}", json.dumps({
             "type": "bpm_analyzed",
+            "room_id": room_id,
             "job_id": job_id,
             "base_bpm": round(base_bpm, 1),
         }))

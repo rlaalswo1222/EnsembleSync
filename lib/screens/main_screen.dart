@@ -161,6 +161,20 @@ class _MainScreenState extends State<MainScreen> {
           final fileUrl = event.data['file_url'] as String?;
           if (fileUrl != null) _loadScoreFromUrl(fileUrl);
           break;
+        case WsEventType.audioUploaded:
+          final payload = event.data['payload'] as Map<String, dynamic>? ?? {};
+          final eventRoomId = payload['room_id'] as String?;
+          if (eventRoomId != null && eventRoomId != widget.roomId) break;
+          final filename = payload['filename'] as String?;
+          if (filename != null && mounted) {
+            setState(() {
+              if (_audioFilename != filename) {
+                _audioBytes = null;
+              }
+              _audioFilename = filename;
+            });
+          }
+          break;
         case WsEventType.trackSeparated:
           final payload = event.data['payload'] as Map<String, dynamic>? ?? {};
           final tracksJson = payload['tracks'] as Map<String, dynamic>? ?? {};
@@ -190,12 +204,22 @@ class _MainScreenState extends State<MainScreen> {
                 icon: Icons.queue_music_rounded,
               ),
           ];
-          if (mounted) setState(() => _tracks = results);
+          if (mounted) {
+            setState(() {
+              _tracks = results;
+              _preferredResultMode = ResultMode.track;
+              _tabIndex = 2;
+            });
+          }
           break;
         case WsEventType.bpmAnalyzed:
           final jobId = event.data['job_id'] as String?;
           if (jobId != null && mounted) {
-            setState(() => _bpmJobId = jobId);
+            setState(() {
+              _bpmJobId = jobId;
+              _preferredResultMode = ResultMode.bpm;
+              _tabIndex = 2;
+            });
             _loadBpmResult(jobId);
           }
           break;
@@ -346,9 +370,7 @@ class _MainScreenState extends State<MainScreen> {
 
   Future<void> _uploadScore(Uint8List bytes, String filename) async {
     try {
-      final fileUrl =
-          await ApiService().uploadScore(widget.roomId, bytes, filename);
-      _ws.sendScoreUploaded(fileUrl);
+      await ApiService().uploadScore(widget.roomId, bytes, filename);
     } catch (e) {
       if (mounted) _showSnack('업로드 실패: $e');
     }

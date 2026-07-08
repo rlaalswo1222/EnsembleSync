@@ -3,8 +3,18 @@ import psycopg2.extras
 from database import get_db
 from celery_app import celery_app
 import uuid
+import json
+import redis
 
 router = APIRouter()
+redis_client = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
+
+
+def publish_room_event(room_id: str, message: dict):
+    try:
+        redis_client.publish(f"room_{room_id}", json.dumps(message))
+    except Exception:
+        pass
 
 @router.post("/api/analysis/{room_id}/start")
 async def start_analysis(room_id: str, audio_file_id: str, job_type: str):
@@ -27,7 +37,10 @@ async def start_analysis(room_id: str, audio_file_id: str, job_type: str):
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
         # 1. audio_file 존재 여부 검증
-        cur.execute("SELECT id FROM audio_file WHERE id = %s", (audio_file_id,))
+        cur.execute(
+            "SELECT id, file_type FROM audio_file WHERE id = %s AND room_id = %s",
+            (audio_file_id, room_id),
+        )
         audio_file = cur.fetchone()
         if not audio_file:
             return {"status": 404, "message": "존재하지 않는 음원 파일입니다."}
@@ -45,9 +58,7 @@ async def start_analysis(room_id: str, audio_file_id: str, job_type: str):
 
         # 3. Celery 비동기 작업 등록
         if job_type == "separation":
-            cur.execute("SELECT file_type FROM audio_file WHERE id = %s", (audio_file_id,))
-            audio_row = cur.fetchone()
-            file_path = f"uploads/audio/{room_id}/{audio_file_id}.{audio_row['file_type']}"
+            file_path = f"uploads/audio/{room_id}/{audio_file_id}.{audio_file['file_type']}"
             task = celery_app.send_task(
                 "separate_audio_task",
                 args=[file_path, room_id, job_id],
@@ -68,6 +79,16 @@ async def start_analysis(room_id: str, audio_file_id: str, job_type: str):
         )
         conn.commit()
         cur.close()
+
+        publish_room_event(room_id, {
+            "type": "analysis_started",
+            "payload": {
+                "room_id": room_id,
+                "job_id": job_id,
+                "job_type": job_type,
+                "audio_file_id": audio_file_id,
+            },
+        })
 
         return {
             "status": 200,

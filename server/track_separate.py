@@ -114,6 +114,7 @@ def separate_audio_task(self, file_path: str, room_id: str, job_id: str):
             "type": "track_separated",
             "payload": {
                 "room_id": room_id,
+                "job_id": job_id,
                 "status": "completed",
                 "tracks": tracks_dict,
                 "message": "음원 분리가 완료되었습니다."
