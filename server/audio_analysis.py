@@ -119,15 +119,15 @@ async def cancel_analysis(job_id: str):
         job = cur.fetchone()
         if not job:
             return {"status": 404, "message": "존재하지 않는 작업입니다."}
-        if job['status'] in ('done', 'failed'):
-            return {"status": 200, "message": "이미 종료된 작업입니다."}
+        if job['status'] in ('done', 'failed', 'cancelled'):
+            return {"status": 400, "message": f"취소할 수 없는 상태입니다: {job['status']}"}
 
         celery_task_id = job['celery_task_id']
         if celery_task_id:
             celery_app.control.revoke(celery_task_id, terminate=True, signal='SIGKILL')
 
         cur.execute(
-            "UPDATE analysis_job SET status = 'failed', completed_at = now() WHERE id = %s",
+            "UPDATE analysis_job SET status = 'cancelled' WHERE id = %s",
             (job_id,)
         )
         conn.commit()
