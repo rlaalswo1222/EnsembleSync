@@ -55,7 +55,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.worker
-    command: celery -A bpm_analyze.celery_app worker --loglevel=info -Q bpm
+    command: celery -A bpm_analyze.celery_app worker --loglevel=info -Q bpm -n bpm@%h
     environment: *backend-env
     volumes:
       - ./uploads:/app/uploads
@@ -66,11 +66,11 @@ services:
         condition: service_healthy
 
   worker-separation:
+    # 빌드 정의는 worker-bpm 한 곳에만 둔다. 두 서비스가 같은 태그를 동시에
+    # export 하려다 "image already exists" 로 빌드가 실패한다.
     image: ensemblesync-worker
-    build:
-      context: .
-      dockerfile: Dockerfile.worker
-    command: celery -A track_separate.celery_app worker --loglevel=info -Q separation
+    pull_policy: never
+    command: celery -A track_separate.celery_app worker --loglevel=info -Q separation -n separation@%h
     environment: *backend-env
     volumes:
       - ./uploads:/app/uploads
