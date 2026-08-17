@@ -3,6 +3,7 @@ import json
 import redis
 import redis.asyncio as aioredis
 import asyncio
+from config import REDIS_HOST, REDIS_PORT
 
 router = APIRouter()
 
@@ -11,14 +12,14 @@ _rooms: dict = {}
 _redis_tasks: dict = {}  # room_id -> asyncio.Task (Redis pub/sub 리스너)
 
 try:
-    _redis = redis.Redis(host='localhost', port=6379, decode_responses=True)
+    _redis = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
     _redis.ping()
 except Exception:
     _redis = None
 
 
 async def _redis_listener(room_id: str):
-    r = aioredis.Redis(host='localhost', port=6379, decode_responses=True)
+    r = aioredis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
     pubsub = r.pubsub()
     await pubsub.subscribe(f"room_{room_id}")
     try:

@@ -1,12 +1,14 @@
 from celery import Celery
 
+from config import REDIS_HOST, REDIS_PORT
+
 # Celery 앱 생성 + Redis 연동 설정
 # broker: 작업 큐 (Redis)
 # backend: 결과 저장 (Redis)
 celery_app = Celery(
     "ensemblesync",
-    broker="redis://localhost:6379/0",
-    backend="redis://localhost:6379/1"
+    broker=f"redis://{REDIS_HOST}:{REDIS_PORT}/0",
+    backend=f"redis://{REDIS_HOST}:{REDIS_PORT}/1"
 )
 
 celery_app.conf.update(

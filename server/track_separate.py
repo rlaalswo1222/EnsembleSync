@@ -9,10 +9,10 @@ import json
 import redis
 from database import get_db
 from celery_app import celery_app
-from config import public_url
+from config import REDIS_HOST, REDIS_PORT, public_url
 
 # Redis 클라이언트 (pub/sub용)
-redis_client = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
+redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0, decode_responses=True)
 
 @celery_app.task(bind=True, name="separate_audio_task")
 def separate_audio_task(self, file_path: str, room_id: str, job_id: str):

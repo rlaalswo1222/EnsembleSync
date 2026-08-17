@@ -1,12 +1,13 @@
 from fastapi import APIRouter
 import psycopg2.extras
 from database import get_db
+from config import REDIS_HOST, REDIS_PORT
 import json
 import redis
 
 router = APIRouter()
 
-redis_client = redis.Redis(host='localhost', port=6379, decode_responses=True)
+redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
 
 @router.get("/api/score/{room_id}/snapshot")
 async def get_score_snapshot(room_id: str):

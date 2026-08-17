@@ -1,7 +1,7 @@
 from fastapi import APIRouter, UploadFile, File
 import psycopg2.extras
 from database import get_db
-from config import public_url
+from config import REDIS_HOST, REDIS_PORT, public_url
 import uuid
 import shutil
 import os
@@ -13,7 +13,7 @@ router = APIRouter()
 ALLOWED_EXTENSIONS = {'mp3', 'wav', 'flac', 'm4a'}
 ALLOWED_PURPOSES = {'bpm', 'pitch', 'separation'}
 UPLOAD_DIR = "uploads/audio"
-redis_client = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
+redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0, decode_responses=True)
 
 
 def publish_room_event(room_id: str, message: dict):

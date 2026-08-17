@@ -3,7 +3,13 @@ from fastapi.responses import FileResponse
 import psycopg2.extras
 from database import get_db
 from celery_app import celery_app
-from config import local_upload_path, normalize_public_url, public_url
+from config import (
+    REDIS_HOST,
+    REDIS_PORT,
+    local_upload_path,
+    normalize_public_url,
+    public_url,
+)
 import uuid
 import shutil
 import os
@@ -13,7 +19,7 @@ import redis
 router = APIRouter()
 
 ALLOWED_AUDIO_EXTENSIONS = {'mp3', 'wav', 'flac', 'm4a'}
-redis_client = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
+redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0, decode_responses=True)
 
 
 def publish_room_event(room_id: str, message: dict):

@@ -5,6 +5,9 @@ __pycache__/
 server/.env
 *.pem
 
+# 런타임 업로드 파일 (도커 볼륨 마운트 대상)
+server/uploads/
+
 # Miscellaneous
 *.class
 *.log
