@@ -5,17 +5,23 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 
 import '../models/bpm_result.dart';
+import '../services/api_constants.dart';
 
 class BpmResultView extends StatefulWidget {
   final BpmResult result;
   final String? audioFilename;
   final Uint8List? audioBytes;
 
+  /// 서버에 업로드된 음원 주소. 웹에서는 BytesSource 가 바이트를 data URI 로
+  /// 변환하다 실패하므로 이 주소를 우선 사용한다.
+  final String? audioUrl;
+
   const BpmResultView({
     super.key,
     required this.result,
     this.audioFilename,
     this.audioBytes,
+    this.audioUrl,
   });
 
   @override
@@ -36,6 +42,8 @@ class _BpmResultViewState extends State<BpmResultView> {
   double get _playPosition => _duration.inMilliseconds > 0
       ? _position.inMilliseconds / _duration.inMilliseconds
       : 0.0;
+
+  bool get _canPlay => widget.audioUrl != null || widget.audioBytes != null;
 
   @override
   void initState() {
@@ -62,7 +70,8 @@ class _BpmResultViewState extends State<BpmResultView> {
   @override
   void didUpdateWidget(BpmResultView oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.audioBytes != oldWidget.audioBytes) {
+    if (widget.audioBytes != oldWidget.audioBytes ||
+        widget.audioUrl != oldWidget.audioUrl) {
       unawaited(_player.stop());
       _position = Duration.zero;
       _duration = Duration.zero;
@@ -78,13 +87,22 @@ class _BpmResultViewState extends State<BpmResultView> {
   }
 
   Future<void> _togglePlay() async {
-    if (widget.audioBytes == null) return;
+    if (!_canPlay) return;
     if (_isPlaying) {
       await _player.pause();
     } else if (_sourceLoaded) {
       await _player.resume();
     } else {
-      await _player.play(BytesSource(widget.audioBytes!));
+      // 업로드된 주소가 있으면 그쪽을 쓴다. 바이트 재생은 웹에서 data URI 로
+      // 변환되기 때문에 파일이 조금만 커져도 브라우저가 처리하지 못한다.
+      final url = widget.audioUrl;
+      await _player.play(
+        url != null
+            ? UrlSource(url.startsWith('http')
+                ? url
+                : '${ApiConstants.baseUrl}$url')
+            : BytesSource(widget.audioBytes!),
+      );
       _sourceLoaded = true;
     }
   }
@@ -222,12 +240,13 @@ class _BpmResultViewState extends State<BpmResultView> {
           Row(
             children: [
               GestureDetector(
-                onTap: _togglePlay,
+                onTap: _canPlay ? _togglePlay : null,
                 child: Container(
                   width: 36,
                   height: 36,
-                  decoration: const BoxDecoration(
-                    color: _primary,
+                  decoration: BoxDecoration(
+                    // 재생할 음원이 없으면 눌리지 않는다는 걸 보이게 한다
+                    color: _canPlay ? _primary : const Color(0xFFD1D5DB),
                     shape: BoxShape.circle,
                   ),
                   child: Icon(

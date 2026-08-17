@@ -64,6 +64,8 @@ class _MainScreenState extends State<MainScreen> {
   List<TrackResult> _tracks = [];
   String? _audioFilename;
   Uint8List? _audioBytes;
+  // 업로드된 음원 주소. 웹에서는 바이트 재생이 불가해 이 주소로 재생한다.
+  String? _audioUrl;
 
   String? _bpmJobId;
   BpmResult? _bpmResult;
@@ -176,6 +178,7 @@ class _MainScreenState extends State<MainScreen> {
                 _audioBytes = null;
               }
               _audioFilename = filename;
+              _audioUrl = payload['file_url'] as String?;
             });
           }
           break;
@@ -824,11 +827,15 @@ class _MainScreenState extends State<MainScreen> {
             _audioBytes = bytes;
             _audioFilename = filename;
           }),
+          onAudioUrl: (url) {
+            if (mounted) setState(() => _audioUrl = url);
+          },
         ),
         ResultTab(
           tracks: _tracks,
           audioFilename: _audioFilename,
           audioBytes: _audioBytes,
+          audioUrl: _audioUrl,
           bpmJobId: _bpmJobId,
           bpmResult: _bpmResult,
           preferredMode: _preferredResultMode,

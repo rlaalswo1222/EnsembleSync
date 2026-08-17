@@ -18,6 +18,9 @@ class AnalysisTab extends StatefulWidget {
   final void Function(String jobId)? onBpmJobId;
   final void Function(Uint8List bytes, String filename)? onAudioPicked;
 
+  /// 업로드된 음원의 서버 주소. 재생은 이 주소로 한다 (웹에서 바이트 재생 불가).
+  final void Function(String? url)? onAudioUrl;
+
   const AnalysisTab({
     super.key,
     required this.roomId,
@@ -27,6 +30,7 @@ class AnalysisTab extends StatefulWidget {
     this.onGoToTrackResult,
     this.onBpmJobId,
     this.onAudioPicked,
+    this.onAudioUrl,
   });
 
   @override
@@ -79,7 +83,9 @@ class _AnalysisTabState extends State<AnalysisTab> {
         if (!_belongsToCurrentRoom(payload)) return;
         final filename = payload['filename'] as String?;
         final audioFileId = payload['audio_file_id'] as String?;
+        final fileUrl = payload['file_url'] as String?;
         if (filename == null || !mounted) return;
+        widget.onAudioUrl?.call(fileUrl);
 
         setState(() {
           final isAnalyzing = _trackState == AnalysisState.loading ||
@@ -178,6 +184,8 @@ class _AnalysisTabState extends State<AnalysisTab> {
         _trackJobId = null;
       });
       widget.onAudioPicked?.call(bytes, filename);
+      // 새 파일을 골랐으므로 이전 음원 주소는 무효
+      widget.onAudioUrl?.call(null);
       await _uploadSelectedAudio(bytes, filename);
     }
   }
@@ -190,12 +198,14 @@ class _AnalysisTabState extends State<AnalysisTab> {
         filename: filename,
         purpose: 'separation',
       );
+      widget.onAudioUrl?.call(uploadResult['file_url'] as String?);
       if (!mounted) return;
       setState(() {
         _audioFileId = uploadResult['audio_file_id'] as String?;
         _isUploadingAudio = false;
       });
     } catch (e) {
+      widget.onAudioUrl?.call(null);
       if (!mounted) return;
       setState(() {
         _audioFileId = null;
@@ -218,6 +228,7 @@ class _AnalysisTabState extends State<AnalysisTab> {
         purpose: purpose,
       );
       final audioFileId = uploadResult['audio_file_id'] as String?;
+      widget.onAudioUrl?.call(uploadResult['file_url'] as String?);
       if (mounted) {
         setState(() {
           _audioFileId = audioFileId;
