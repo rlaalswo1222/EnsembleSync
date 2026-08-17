@@ -114,198 +114,244 @@ class _HomeScreenState extends State<HomeScreen>
   // ══════════════════════════════════════════════
   @override
   Widget build(BuildContext context) {
+    final isMobile = MediaQuery.sizeOf(context).width < 600;
+
     return Scaffold(
-      backgroundColor: const Color(0xFFE8F3F1),
-      body: SafeArea(
-        child: Center(
-          child: Container(
-            constraints: const BoxConstraints(maxWidth: 400),
-            height: MediaQuery.of(context).size.height * 0.85,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(24),
-            ),
-            padding: const EdgeInsets.symmetric(horizontal: 28),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                // ── 로고 ──────────────────────────────────────
-                const Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.music_note_rounded, color: _primary, size: 36),
-                    SizedBox(width: 8),
-                    Text(
-                      'Ensemble',
-                      style: TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF1A1A2E),
-                        letterSpacing: -0.5,
+      resizeToAvoidBottomInset: true,
+      backgroundColor: isMobile ? Colors.white : const Color(0xFFE8F3F1),
+      body: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
+        child: SafeArea(
+          child: Center(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: isMobile ? double.infinity : 400,
+              ),
+              child: ColoredBox(
+                color: Colors.white,
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    const verticalPadding = 24.0;
+                    return SingleChildScrollView(
+                      keyboardDismissBehavior:
+                          ScrollViewKeyboardDismissBehavior.onDrag,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 28,
+                        vertical: verticalPadding,
                       ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  '함께 음악을 만들어보세요',
-                  style: TextStyle(fontSize: 14, color: Color(0xFF9CA3AF)),
-                ),
-                const SizedBox(height: 48),
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          minHeight:
+                              constraints.maxHeight - (verticalPadding * 2),
+                        ),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            // ── 로고 ──────────────────────────────────────
+                            const Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.music_note_rounded,
+                                    color: _primary, size: 36),
+                                SizedBox(width: 8),
+                                Text(
+                                  'Bandly',
+                                  style: TextStyle(
+                                    fontSize: 28,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF1A1A2E),
+                                    letterSpacing: -0.5,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            const Text(
+                              '함께 음악을 만들어보세요',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Color(0xFF9CA3AF),
+                              ),
+                            ),
+                            const SizedBox(height: 48),
 
-                // ── 닉네임 입력 (흔들기 적용) ──────────────────
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    '닉네임',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.grey[700],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                AnimatedBuilder(
-                  animation: _shakeAnimation,
-                  builder: (_, child) => Transform.translate(
-                    offset: Offset(_shakeAnimation.value, 0),
-                    child: child,
-                  ),
-                  child: TextField(
-                    controller: _nicknameController,
-                    maxLength: 20,
-                    textInputAction: TextInputAction.done,
-                    decoration: InputDecoration(
-                      hintText: '이름을 입력하세요...',
-                      hintStyle: const TextStyle(color: Color(0xFFBDBDBD)),
-                      counterText: '',
-                      contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 14),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        borderSide:
-                            const BorderSide(color: _primary, width: 1.5),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
+                            // ── 닉네임 입력 (흔들기 적용) ──────────────────
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                '닉네임',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.grey[700],
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            AnimatedBuilder(
+                              animation: _shakeAnimation,
+                              builder: (_, child) => Transform.translate(
+                                offset: Offset(_shakeAnimation.value, 0),
+                                child: child,
+                              ),
+                              child: TextField(
+                                controller: _nicknameController,
+                                maxLength: 20,
+                                textInputAction: TextInputAction.done,
+                                decoration: InputDecoration(
+                                  hintText: '이름을 입력하세요...',
+                                  hintStyle:
+                                      const TextStyle(color: Color(0xFFBDBDBD)),
+                                  counterText: '',
+                                  contentPadding: const EdgeInsets.symmetric(
+                                      horizontal: 16, vertical: 14),
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                    borderSide: const BorderSide(
+                                        color: Color(0xFFE5E7EB)),
+                                  ),
+                                  enabledBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                    borderSide: const BorderSide(
+                                        color: Color(0xFFE5E7EB)),
+                                  ),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                    borderSide: const BorderSide(
+                                      color: _primary,
+                                      width: 1.5,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 16),
 
-                // ── 방 이름 입력 ───────────────────────────────
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    '방 이름 (선택)',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.grey[700],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: _roomNameController,
-                  maxLength: 30,
-                  textInputAction: TextInputAction.done,
-                  decoration: InputDecoration(
-                    hintText: '비워두면 "닉네임의 방"으로 설정됩니다',
-                    hintStyle:
-                        const TextStyle(color: Color(0xFFBDBDBD), fontSize: 12),
-                    counterText: '',
-                    contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 14),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: const BorderSide(color: _primary, width: 1.5),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
+                            // ── 방 이름 입력 ───────────────────────────────
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                '방 이름 (선택)',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.grey[700],
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            TextField(
+                              controller: _roomNameController,
+                              maxLength: 30,
+                              textInputAction: TextInputAction.done,
+                              decoration: InputDecoration(
+                                hintText: '비워두면 "닉네임의 방"으로 설정됩니다',
+                                hintStyle: const TextStyle(
+                                    color: Color(0xFFBDBDBD), fontSize: 12),
+                                counterText: '',
+                                contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 16, vertical: 14),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                  borderSide: const BorderSide(
+                                      color: Color(0xFFE5E7EB)),
+                                ),
+                                enabledBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                  borderSide: const BorderSide(
+                                      color: Color(0xFFE5E7EB)),
+                                ),
+                                focusedBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                  borderSide: const BorderSide(
+                                    color: _primary,
+                                    width: 1.5,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 16),
 
-                // ── 방 만들기 버튼 ─────────────────────────────
-                SizedBox(
-                  width: double.infinity,
-                  height: 50,
-                  child: FilledButton.icon(
-                    onPressed: _isLoading ? null : _onCreateRoom,
-                    style: FilledButton.styleFrom(
-                      backgroundColor: _primary,
-                      disabledBackgroundColor: const Color(0xFFD1D5DB),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                    icon: _isLoading
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(
-                                strokeWidth: 2, color: Colors.white),
-                          )
-                        : const Icon(Icons.add, size: 18),
-                    label: Text(
-                      _isLoading ? '생성 중...' : '방 만들기',
-                      style: const TextStyle(
-                          fontSize: 15, fontWeight: FontWeight.w600),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 10),
+                            // ── 방 만들기 버튼 ─────────────────────────────
+                            SizedBox(
+                              width: double.infinity,
+                              height: 50,
+                              child: FilledButton.icon(
+                                onPressed: _isLoading ? null : _onCreateRoom,
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: _primary,
+                                  disabledBackgroundColor:
+                                      const Color(0xFFD1D5DB),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                ),
+                                icon: _isLoading
+                                    ? const SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            color: Colors.white),
+                                      )
+                                    : const Icon(Icons.add, size: 18),
+                                label: Text(
+                                  _isLoading ? '생성 중...' : '방 만들기',
+                                  style: const TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w600),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 10),
 
-                // ── 방 참가하기 버튼 ───────────────────────────
-                SizedBox(
-                  width: double.infinity,
-                  height: 50,
-                  child: OutlinedButton.icon(
-                    onPressed: _onJoinRoom,
-                    style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: Color(0xFFD1D5DB)),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                    icon: const Icon(Icons.group_rounded,
-                        size: 18, color: Color(0xFF6B7280)),
-                    label: const Text(
-                      '방 참가하기',
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFF374151),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 24),
+                            // ── 방 참가하기 버튼 ───────────────────────────
+                            SizedBox(
+                              width: double.infinity,
+                              height: 50,
+                              child: OutlinedButton.icon(
+                                onPressed: _onJoinRoom,
+                                style: OutlinedButton.styleFrom(
+                                  side: const BorderSide(
+                                      color: Color(0xFFD1D5DB)),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                ),
+                                icon: const Icon(Icons.group_rounded,
+                                    size: 18, color: Color(0xFF6B7280)),
+                                label: const Text(
+                                  '방 참가하기',
+                                  style: TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w600,
+                                    color: Color(0xFF374151),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 24),
 
-                // ── 하단 안내 ──────────────────────────────────
-                AnimatedOpacity(
-                  opacity: _hasNickname ? 0.0 : 1.0,
-                  duration: const Duration(milliseconds: 200),
-                  child: const Text(
-                    '닉네임을 입력하여 시작하세요',
-                    style: TextStyle(fontSize: 12, color: Color(0xFF9CA3AF)),
-                  ),
+                            // ── 하단 안내 ──────────────────────────────────
+                            AnimatedOpacity(
+                              opacity: _hasNickname ? 0.0 : 1.0,
+                              duration: const Duration(milliseconds: 200),
+                              child: const Text(
+                                '닉네임을 입력하여 시작하세요',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Color(0xFF9CA3AF),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
                 ),
-              ],
+              ),
             ),
           ),
         ),
