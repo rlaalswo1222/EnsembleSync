@@ -118,7 +118,8 @@ class _HomeScreenState extends State<HomeScreen>
 
     return Scaffold(
       resizeToAvoidBottomInset: true,
-      backgroundColor: isMobile ? Colors.white : const Color(0xFFE8F3F1),
+      backgroundColor:
+          isMobile ? const Color(0xFFF7F7F7) : const Color(0xFFE8F3F1),
       body: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
