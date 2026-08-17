@@ -1,5 +1,5 @@
 name: ensemble_sync
-description: 합주 피드백 협업 플랫폼 EnsembleSync
+description: 합주 피드백 협업 플랫폼 Bandly
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -16,6 +16,7 @@ dependencies:
   url_launcher: ^6.3.0
   audioplayers: ^6.0.0
   pdfx: ^2.6.0
+  pdfrx: ^2.4.7
   image_cropper: ^12.0.0
   path_provider: ^2.1.0
 
