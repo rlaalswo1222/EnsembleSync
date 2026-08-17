@@ -1,6 +1,7 @@
 from fastapi import APIRouter, UploadFile, File
 import psycopg2.extras
 from database import get_db
+from config import public_url
 import uuid
 import shutil
 import os
@@ -69,7 +70,7 @@ async def upload_audio(
             shutil.copyfileobj(file.file, buffer)
 
         # 5. EC2 URL 생성
-        file_url = f"http://3.106.49.28:8000/uploads/audio/{room_id}/{audio_id}.{ext}"
+        file_url = public_url(f"uploads/audio/{room_id}/{audio_id}.{ext}")
 
         # 6. DB에 audio_file 테이블 INSERT
         cur.execute(

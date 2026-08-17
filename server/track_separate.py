@@ -9,6 +9,7 @@ import json
 import redis
 from database import get_db
 from celery_app import celery_app
+from config import public_url
 
 # Redis 클라이언트 (pub/sub용)
 redis_client = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
@@ -80,7 +81,9 @@ def separate_audio_task(self, file_path: str, room_id: str, job_id: str):
             if not (demucs_out / f"{track_name}.wav").exists():
                 raise Exception(f"Demucs 출력 파일 없음: {track_name}.wav")
 
-        base_url = f"http://3.106.49.28:8000/uploads/separated/{job_id}/htdemucs/{stem_name}"
+        base_url = public_url(
+            f"uploads/separated/{job_id}/htdemucs/{stem_name}"
+        )
         tracks_dict = {
             "vocals": f"{base_url}/vocals.wav",
             "drums":  f"{base_url}/drums.wav",
