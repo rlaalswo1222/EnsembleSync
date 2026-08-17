@@ -1,6 +1,7 @@
 # FastAPI API 서버 이미지
 # 무거운 분석 작업은 Celery 워커가 맡으므로 여기엔 torch/demucs 를 넣지 않는다.
-FROM python:3.12-slim
+# 파이썬 버전은 EC2 운영 환경(3.14)과 맞춘다.
+FROM python:3.14-slim
 
 WORKDIR /app
 

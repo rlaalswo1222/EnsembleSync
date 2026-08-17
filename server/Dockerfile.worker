@@ -1,6 +1,8 @@
 # Celery 워커 이미지 (bpm / separation 두 워커가 공유)
 # API와 달리 librosa, torch, demucs, ffmpeg 가 모두 필요하다.
-FROM python:3.12-slim
+# 파이썬 버전은 EC2 운영 환경(3.14)과 맞춘다. 3.13 부터 표준 라이브러리에서
+# 빠진 audioop/aifc 등의 백포트 패키지가 requirements 에 포함돼 있다.
+FROM python:3.14-slim
 
 WORKDIR /app
 
@@ -16,8 +18,11 @@ RUN pip install --no-cache-dir \
       --index-url https://download.pytorch.org/whl/cpu
 
 # 나머지 의존성 (torch 는 위에서 이미 설치돼 건너뛴다)
+# requirements.txt 가 torch==2.12.0+cpu 처럼 +cpu 버전을 고정하므로
+# PyTorch 인덱스를 보조로 함께 조회해야 한다.
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt \
+      --extra-index-url https://download.pytorch.org/whl/cpu
 
 COPY . .
 

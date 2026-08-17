@@ -1,6 +1,5 @@
 -- ============================================================
 -- EnsembleSync — PostgreSQL DDL
--- 소프트웨어공학 팀 프로젝트 | 4EVER팀
 -- 기반: 요구분석서 v5 (FR-01~FR-12, NR-01~NR-07)
 -- ============================================================
 
@@ -55,7 +54,7 @@ CREATE TABLE score (
     room_id      UUID      NOT NULL REFERENCES room(id) ON DELETE CASCADE,
     uploaded_by  UUID      NOT NULL REFERENCES member(id),
     file_url     TEXT      NOT NULL,   -- S3/MinIO URL
-    file_type    VARCHAR(10) NOT NULL
+    file_type    VARCHAR(10) NOT NULL DEFAULT 'jpg'
                  CHECK (file_type IN ('jpg', 'jpeg', 'png', 'pdf')),
     uploaded_at  TIMESTAMP NOT NULL DEFAULT now()
 );
@@ -86,7 +85,8 @@ CREATE INDEX idx_annotation_member ON annotation(member_id);
 CREATE TABLE audio_file (
     id           UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     room_id      UUID        NOT NULL REFERENCES room(id) ON DELETE CASCADE,
-    uploaded_by  UUID        NOT NULL REFERENCES member(id),
+    -- 업로드 API 가 값을 채우지 않아 nullable (운영 DB 기준)
+    uploaded_by  UUID        REFERENCES member(id),
     file_type    VARCHAR(10) NOT NULL
                  CHECK (file_type IN ('mp3', 'wav', 'flac', 'm4a')),  -- NR-07
     file_url     TEXT        NOT NULL,
@@ -127,7 +127,10 @@ CREATE TABLE bpm_result (
     bpm_data            JSONB NOT NULL,
     base_bpm            FLOAT,
     -- deviation_sections: [{start: float, end: float, bpm: float}, ...] (FR-05)
-    deviation_sections  JSONB
+    deviation_sections  JSONB,
+    max_bpm             FLOAT,
+    min_bpm             FLOAT,
+    avg_bpm             FLOAT
 );
 
 -- ============================================================
@@ -161,10 +164,10 @@ CREATE TABLE separated_track (
     id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     job_id      UUID        NOT NULL REFERENCES analysis_job(id) ON DELETE CASCADE,
     track_type  VARCHAR(20) NOT NULL
-                CHECK (track_type IN ('vocals', 'drums', 'bass', 'guitar')),  -- Demucs 4트랙
+                -- Demucs htdemucs 가 실제로 내보내는 4트랙 (guitar 아님)
+                CHECK (track_type IN ('vocals', 'drums', 'bass', 'other')),
     file_url    TEXT        NOT NULL,   -- S3/MinIO 분리 트랙 URL (UC-12 6단계)
-    created_at  TIMESTAMP   NOT NULL DEFAULT now(),
-    UNIQUE (job_id, track_type)
+    created_at  TIMESTAMP   NOT NULL DEFAULT now()
 );
 
 -- ============================================================
