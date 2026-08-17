@@ -143,8 +143,8 @@ def separate_audio_task(self, file_path: str, room_id: str, job_id: str):
         return {"status": "error", "error_message": str(e)}
 
     finally:
-        # 작업이 끝나면 성공/실패 여부와 상관없이 무조건 임시 폴더와 원본 파일을 깔끔하게 삭제합니다.
+        # ffmpeg 변환용 임시 폴더만 정리한다.
+        # 업로드된 원본 음원은 지우지 않는다. audio_file.file_url 이 이 파일을
+        # 가리키고 있어서, 삭제하면 BPM 결과 화면의 재생이 404 가 된다.
         if tmp_dir and os.path.exists(tmp_dir):
             shutil.rmtree(tmp_dir, ignore_errors=True)
-        if os.path.exists(file_path):
-            os.remove(file_path)
