@@ -26,4 +26,12 @@ RUN pip install --no-cache-dir -r requirements.txt \
 
 COPY . .
 
+# celery 는 root 실행을 경고한다. uid 는 호스트 ubuntu 유저(1000)와 맞춘다.
+# .cache 를 미리 만들어 두어야 이 경로에 붙는 볼륨이 app 소유로 초기화된다.
+# (없으면 도커가 root 소유로 만들어 demucs 모델 다운로드가 실패한다)
+RUN useradd -u 1000 -m app \
+ && mkdir -p /home/app/.cache \
+ && chown -R app:app /app /home/app
+USER app
+
 # 실행 명령은 compose 에서 워커별로 지정한다 (-Q bpm / -Q separation)

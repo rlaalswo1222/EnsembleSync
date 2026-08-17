@@ -75,7 +75,7 @@ services:
     volumes:
       - ./uploads:/app/uploads
       # demucs 모델 가중치 캐시 (재시작마다 다시 받지 않도록)
-      - modelcache:/root/.cache
+      - modelcache:/home/app/.cache
     depends_on:
       db:
         condition: service_healthy

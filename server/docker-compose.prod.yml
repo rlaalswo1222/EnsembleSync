@@ -1,0 +1,69 @@
+# EC2 배포용 구성.
+#
+# 로컬 개발용(docker-compose.yml)과 다른 점:
+#  - PostgreSQL / Redis 를 컨테이너로 띄우지 않는다. 서버에 이미 설치돼
+#    운영 중인 것을 그대로 쓴다 (데이터 이전 불필요, 메모리 절약).
+#  - network_mode: host 로 서버의 네트워크를 공유한다. 덕분에 DB_HOST 와
+#    REDIS_HOST 가 localhost 그대로 동작하고, Caddy 의 reverse_proxy
+#    127.0.0.1:8000 설정도 손댈 필요가 없다.
+#  - 재시작 정책을 둬서 systemd 의 Restart=always 를 대신한다.
+#
+# 사용법:  docker compose -f docker-compose.prod.yml up -d --build
+
+x-backend-env: &backend-env
+  DB_HOST: localhost
+  DB_NAME: ${DB_NAME}
+  DB_USER: ${DB_USER}
+  DB_PASSWORD: ${DB_PASSWORD}
+  REDIS_HOST: localhost
+  REDIS_PORT: 6379
+  PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
+
+x-logging: &logging
+  # 도커 로그가 무한정 쌓여 디스크를 잠식하는 것을 막는다
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  api:
+    build: .
+    image: ensemblesync-api
+    command: uvicorn main:app --host 0.0.0.0 --port 8000
+    network_mode: host
+    environment: *backend-env
+    volumes:
+      - /home/ubuntu/uploads:/app/uploads
+    restart: unless-stopped
+    logging: *logging
+
+  worker-bpm:
+    image: ensemblesync-worker
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    command: celery -A bpm_analyze.celery_app worker --loglevel=info -Q bpm
+    network_mode: host
+    environment: *backend-env
+    volumes:
+      - /home/ubuntu/uploads:/app/uploads
+    restart: unless-stopped
+    logging: *logging
+
+  worker-separation:
+    image: ensemblesync-worker
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    command: celery -A track_separate.celery_app worker --loglevel=info -Q separation
+    network_mode: host
+    environment: *backend-env
+    volumes:
+      - /home/ubuntu/uploads:/app/uploads
+      - modelcache:/home/app/.cache
+    restart: unless-stopped
+    logging: *logging
+
+volumes:
+  modelcache:
