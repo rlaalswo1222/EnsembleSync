@@ -1,0 +1,140 @@
+# Oracle Cloud(Ampere A1 / ARM) 배포용 구성.
+#
+# EC2 배포용(docker-compose.prod.yml)과 다른 점:
+#  - PostgreSQL/Redis/Caddy 를 전부 컨테이너로 올린다. 메모리가 12GB 라
+#    호스트에 따로 설치할 이유가 없고, docker compose up 한 번으로 전체
+#    스택이 완성된다.
+#  - network_mode: host 를 쓰지 않는다. 컨테이너끼리는 서비스 이름으로
+#    통신하고, 외부 노출은 caddy 의 80/443 만 열린다.
+#  - 이미지는 이 서버(ARM)에서 직접 빌드한다. amd64 이미지는 동작하지 않는다.
+#
+# 서버의 파일 배치 (DDL 경로가 ../ 이므로 이 구조를 지켜야 한다):
+#   /home/ubuntu/ensemblesync_ddl.sql
+#   /home/ubuntu/server/          ← 이 파일과 소스가 여기
+#   /home/ubuntu/uploads/         ← 업로드 파일 (EC2 에서 옮겨옴)
+#
+# 사용법:
+#   cd ~/server
+#   docker compose -f docker-compose.oracle.yml up -d --build
+
+x-backend-env: &backend-env
+  DB_HOST: db
+  DB_NAME: ${DB_NAME}
+  DB_USER: ${DB_USER}
+  DB_PASSWORD: ${DB_PASSWORD}
+  REDIS_HOST: redis
+  REDIS_PORT: 6379
+  PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
+
+x-logging: &logging
+  # 도커 로그가 무한정 쌓여 디스크를 잠식하는 것을 막는다
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # 최초 기동 시에만 실행된다. EC2 덤프를 복원할 계획이면 그 전에
+      # 이 파일로 빈 스키마가 먼저 만들어져도 무방하다.
+      - ../ensemblesync_ddl.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+    logging: *logging
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+    logging: *logging
+
+  api:
+    build: .
+    image: ensemblesync-api
+    # 외부에는 caddy 만 노출한다. api 포트는 열지 않는다.
+    environment: *backend-env
+    volumes:
+      - /home/ubuntu/uploads:/app/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    logging: *logging
+
+  worker-bpm:
+    image: ensemblesync-worker
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    command: celery -A bpm_analyze.celery_app worker --loglevel=info -Q bpm -n bpm@%h
+    environment: *backend-env
+    volumes:
+      - /home/ubuntu/uploads:/app/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    logging: *logging
+
+  worker-separation:
+    # 빌드 정의는 worker-bpm 한 곳에만 둔다. 두 서비스가 같은 태그를 동시에
+    # export 하려다 "image already exists" 로 빌드가 실패한다.
+    image: ensemblesync-worker
+    pull_policy: never
+    command: celery -A track_separate.celery_app worker --loglevel=info -Q separation -n separation@%h
+    environment: *backend-env
+    volumes:
+      - /home/ubuntu/uploads:/app/uploads
+      # demucs 모델 가중치 캐시 (재시작마다 다시 받지 않도록)
+      - modelcache:/home/app/.cache
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    logging: *logging
+
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      # 예) 152-70-1-2.sslip.io  — 인스턴스 공인 IP 로 정한다
+      SITE_ADDRESS: ${SITE_ADDRESS}
+    volumes:
+      - ./Caddyfile.docker:/etc/caddy/Caddyfile:ro
+      # 발급받은 인증서를 보존한다. 없으면 재시작마다 재발급을 시도하다
+      # Let's Encrypt 발급 한도에 걸린다.
+      - caddydata:/data
+      - caddyconfig:/config
+    depends_on:
+      - api
+    restart: unless-stopped
+    logging: *logging
+
+volumes:
+  pgdata:
+  modelcache:
+  caddydata:
+  caddyconfig:
