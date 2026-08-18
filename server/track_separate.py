@@ -81,14 +81,13 @@ def separate_audio_task(self, file_path: str, room_id: str, job_id: str):
             if not (demucs_out / f"{track_name}.wav").exists():
                 raise Exception(f"Demucs 출력 파일 없음: {track_name}.wav")
 
-        base_url = public_url(
-            f"uploads/separated/{job_id}/htdemucs/{stem_name}"
-        )
+        # DB 에는 상대경로로 저장한다 (서버 주소가 바뀌어도 레코드 수정 불필요)
+        base_path = f"/uploads/separated/{job_id}/htdemucs/{stem_name}"
         tracks_dict = {
-            "vocals": f"{base_url}/vocals.wav",
-            "drums":  f"{base_url}/drums.wav",
-            "bass":   f"{base_url}/bass.wav",
-            "other":  f"{base_url}/other.wav",
+            "vocals": f"{base_path}/vocals.wav",
+            "drums":  f"{base_path}/drums.wav",
+            "bass":   f"{base_path}/bass.wav",
+            "other":  f"{base_path}/other.wav",
         }
 
         conn = get_db()
@@ -119,7 +118,8 @@ def separate_audio_task(self, file_path: str, room_id: str, job_id: str):
                 "room_id": room_id,
                 "job_id": job_id,
                 "status": "completed",
-                "tracks": tracks_dict,
+                # 클라이언트에는 완전한 주소로 내보낸다
+                "tracks": {k: public_url(v) for k, v in tracks_dict.items()},
                 "message": "음원 분리가 완료되었습니다."
             }
         }

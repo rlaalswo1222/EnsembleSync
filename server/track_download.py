@@ -55,7 +55,8 @@ async def request_track_separation(
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
 
-        file_url = public_url(f"uploads/audio/{room_id}/{audio_id}.{ext}")
+        # DB 에는 상대경로로 저장한다 (서버 주소가 바뀌어도 레코드 수정 불필요)
+        file_url = f"/uploads/audio/{room_id}/{audio_id}.{ext}"
         cur.execute(
             "INSERT INTO audio_file (id, room_id, file_type, file_url, purpose, uploaded_at) VALUES (%s, %s, %s, %s, 'separation', now())",
             (audio_id, room_id, ext, file_url)
@@ -73,7 +74,7 @@ async def request_track_separation(
             "payload": {
                 "room_id": room_id,
                 "audio_file_id": audio_id,
-                "file_url": file_url,
+                "file_url": public_url(file_url),
                 "filename": file.filename,
                 "purpose": "separation",
             },
