@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="https://capsule-render.vercel.app/api?type=slice&color=0:F97316,100:FBBF24&height=200&text=🎵%20EnsembleSync&fontSize=52&fontColor=fff&fontAlignY=70&desc=합주%20피드백%20협업%20플랫폼&descAlignY=88&descSize=18&descColor=fff&rotate=6"/>
+  <img src="assets/branding/bandly_showcase.png" alt="Bandly" width="100%"/>
 </div>
 
 <br/>
@@ -31,7 +31,7 @@
 ```
 
 ```
-✅  EnsembleSync → 데이터 기반 피드백, 실시간 악보 협업
+✅  Bandly → 데이터 기반 피드백, 실시간 악보 협업
 ```
 
 ---
@@ -97,15 +97,12 @@
 
 <div align="center">
 
-| <img src="https://github.com/rlaalswo1222.png" width="80px" height="80px" style="border-radius:50%"/> | <img src="https://github.com/exponent1121.png" width="80px" height="80px" style="border-radius:50%"/> | <img src="https://github.com/ghost.png" width="80px" height="80px" style="border-radius:50%"/> | <img src="https://github.com/ghost.png" width="80px" height="80px" style="border-radius:50%"/> |
+| <img src="https://github.com/rlaalswo1222.png" width="80px" height="80px" style="border-radius:50%"/> | <img src="https://github.com/exponent1121.png" width="80px" height="80px" style="border-radius:50%"/> | <img src="https://github.com/gihoon1237.png" width="80px" height="80px" style="border-radius:50%"/> | <img src="https://github.com/rikky090090.png" width="80px" height="80px" style="border-radius:50%"/> |
 |:---:|:---:|:---:|:---:|
 | **김민재** | **임지수** | **최기훈** | **문준호** |
-| [@rlaalswo1222](https://github.com/rlaalswo1222) | [@exponent1121](https://github.com/exponent1121) | - | - |
+| [@rlaalswo1222](https://github.com/rlaalswo1222) | [@exponent1121](https://github.com/exponent1121) | [@gihoon1237](https://github.com/gihoon1237) | [@rikky090090](https://github.com/rikky090090) |
 
 </div>
 
 <br/>
 
-<div align="center">
-  <img src="https://capsule-render.vercel.app/api?type=slice&color=0:FBBF24,100:F97316&height=120&section=footer&reversal=true"/>
-</div>
