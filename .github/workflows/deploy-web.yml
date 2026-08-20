@@ -1,0 +1,67 @@
+# master 에 push 되면 웹앱을 빌드해 Firebase Hosting 에 배포한다.
+#
+# 배포 전에 analyze/test 를 다시 돌린다. CI 워크플로와 겹치지만,
+# 검사를 통과하지 못한 코드가 배포되는 일이 없도록 이 잡 안에서 스스로 확인한다.
+#
+# 필요한 Secret:
+#   FIREBASE_SERVICE_ACCOUNT  Firebase 콘솔에서 발급한 서비스 계정 JSON 전체
+name: Deploy Web
+
+on:
+  push:
+    branches: [master]
+  # 코드 변경 없이 다시 배포하고 싶을 때 수동 실행
+  workflow_dispatch:
+
+# 배포가 겹치지 않도록. 새 push 가 오면 진행 중인 것은 취소한다.
+concurrency:
+  group: deploy-web
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: 빌드 및 배포
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 코드 내려받기
+        uses: actions/checkout@v4
+
+      - name: Flutter 설치
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.4'
+          channel: stable
+          cache: true
+
+      - name: 의존성 설치
+        run: flutter pub get
+
+      - name: 린트 검사
+        run: flutter analyze
+
+      - name: 테스트
+        run: flutter test
+
+      - name: 웹 빌드
+        run: flutter build web --release
+
+      - name: Firebase 인증 정보 준비
+        env:
+          SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          if [ -z "$SA" ]; then
+            echo "::error::FIREBASE_SERVICE_ACCOUNT Secret 이 없습니다."
+            exit 1
+          fi
+          printf '%s' "$SA" > "$RUNNER_TEMP/firebase-sa.json"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/firebase-sa.json" >> "$GITHUB_ENV"
+
+      - name: Firebase Hosting 배포
+        run: npx --yes firebase-tools@latest deploy --only hosting --non-interactive
+
+      - name: 배포 확인
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' https://bandly-4e2f0.web.app)
+          echo "https://bandly-4e2f0.web.app → HTTP $code"
+          [ "$code" = "200" ] || exit 1
