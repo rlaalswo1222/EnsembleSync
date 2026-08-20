@@ -1,0 +1,89 @@
+# master 에 push 되면 백엔드를 Oracle Cloud 서버에 배포한다.
+#
+# server/ 나 DDL 이 바뀐 경우에만 돈다. Flutter 코드만 고쳤을 때 서버 이미지를
+# 다시 빌드하는 것은 낭비이기 때문이다.
+#
+# 필요한 Secret:
+#   ORACLE_SSH_KEY  서버 접속용 SSH 개인키 (~/.ssh/oracle_key 내용 전체)
+name: Deploy Server
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'server/**'
+      - 'ensemblesync_ddl.sql'
+      - '.github/workflows/deploy-server.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-server
+  cancel-in-progress: false   # 배포 도중 취소되면 서버가 어중간해진다
+
+env:
+  HOST: 161.118.211.155
+  USER: ubuntu
+  COMPOSE: docker-compose.oracle.yml
+
+jobs:
+  deploy:
+    name: 서버 배포
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 코드 내려받기
+        uses: actions/checkout@v4
+
+      - name: SSH 키 준비
+        env:
+          KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          if [ -z "$KEY" ]; then
+            echo "::error::ORACLE_SSH_KEY Secret 이 없습니다."
+            exit 1
+          fi
+          mkdir -p ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: 코드 전송
+        run: |
+          scp -i ~/.ssh/deploy_key -o BatchMode=yes \
+            server/*.py \
+            server/Dockerfile server/Dockerfile.worker \
+            server/$COMPOSE server/Caddyfile.docker \
+            server/requirements.txt server/requirements-api.txt \
+            server/.dockerignore \
+            "$USER@$HOST:~/server/"
+          scp -i ~/.ssh/deploy_key -o BatchMode=yes \
+            ensemblesync_ddl.sql "$USER@$HOST:~/"
+
+      - name: 빌드 및 재기동
+        run: |
+          ssh -i ~/.ssh/deploy_key -o BatchMode=yes "$USER@$HOST" \
+            "cd ~/server && sudo docker compose -f $COMPOSE up -d --build"
+
+      - name: 컨테이너 상태 확인
+        run: |
+          ssh -i ~/.ssh/deploy_key -o BatchMode=yes "$USER@$HOST" \
+            "cd ~/server && sudo docker compose -f $COMPOSE ps --format 'table {{.Service}}\t{{.Status}}'"
+          # 하나라도 Up 이 아니면 실패로 본다
+          bad=$(ssh -i ~/.ssh/deploy_key -o BatchMode=yes "$USER@$HOST" \
+            "cd ~/server && sudo docker compose -f $COMPOSE ps --format '{{.Service}} {{.State}}' | grep -cv ' running' || true")
+          [ "$bad" = "0" ] || { echo "::error::기동하지 않은 컨테이너가 있습니다"; exit 1; }
+
+      - name: 서비스 헬스체크
+        run: |
+          for i in $(seq 1 12); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
+              https://161-118-211-155.sslip.io/docs || true)
+            if [ "$code" = "200" ]; then
+              echo "https://161-118-211-155.sslip.io/docs → HTTP 200"
+              exit 0
+            fi
+            echo "  대기 중... ($i/12, 응답=$code)"
+            sleep 10
+          done
+          echo "::error::헬스체크 실패. 서버에서 로그를 확인하세요."
+          exit 1
