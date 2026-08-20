@@ -5,6 +5,9 @@ __pycache__/
 server/.env
 *.pem
 
+# 런타임 업로드 파일 (도커 볼륨 마운트 대상)
+server/uploads/
+
 # Miscellaneous
 *.class
 *.log
@@ -25,10 +28,9 @@ migrate_working_dir/
 *.iws
 .idea/
 
-# The .vscode folder contains launch configuration and tasks you configure in
-# VS Code which you may wish to be included in version control, so this line
-# is commented out by default.
-#.vscode/
+# 에디터 / 도구 개인 설정 (머신별 절대경로 포함)
+.vscode/
+.claude/
 
 # Flutter/Dart/Pub related
 **/doc/api/
@@ -39,6 +41,7 @@ migrate_working_dir/
 .pub/
 /build/
 /coverage/
+.firebase/
 
 # Symbolication related
 app.*.symbols

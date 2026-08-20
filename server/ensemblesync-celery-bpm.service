@@ -1,0 +1,15 @@
+[Unit]
+Description=EnsembleSync Celery BPM Worker
+After=network-online.target redis-server.service postgresql.service
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/server
+EnvironmentFile=/home/ubuntu/.env
+ExecStart=/home/ubuntu/~ensemble/venv/bin/celery -A bpm_analyze.celery_app worker --loglevel=info -Q bpm
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

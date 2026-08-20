@@ -1,11 +1,11 @@
 class ApiConstants {
   static const String baseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'http://3.106.49.28:8000',
+    defaultValue: 'https://161-118-211-155.sslip.io',
   );
   static const String wsBaseUrl = String.fromEnvironment(
     'API_WS_URL',
-    defaultValue: 'ws://3.106.49.28:8000',
+    defaultValue: 'wss://161-118-211-155.sslip.io',
   );
 
   static const String createRoom = '/api/room/create';

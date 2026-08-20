@@ -2,12 +2,13 @@ from fastapi import APIRouter
 import psycopg2.extras
 from database import get_db
 from celery_app import celery_app
+from config import REDIS_HOST, REDIS_PORT
 import uuid
 import json
 import redis
 
 router = APIRouter()
-redis_client = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
+redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0, decode_responses=True)
 
 
 def publish_room_event(room_id: str, message: dict):

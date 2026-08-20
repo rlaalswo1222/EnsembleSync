@@ -9,9 +9,10 @@ import json
 import redis
 from database import get_db
 from celery_app import celery_app
+from config import REDIS_HOST, REDIS_PORT, public_url
 
 # Redis 클라이언트 (pub/sub용)
-redis_client = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
+redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0, decode_responses=True)
 
 @celery_app.task(bind=True, name="separate_audio_task")
 def separate_audio_task(self, file_path: str, room_id: str, job_id: str):
@@ -80,12 +81,13 @@ def separate_audio_task(self, file_path: str, room_id: str, job_id: str):
             if not (demucs_out / f"{track_name}.wav").exists():
                 raise Exception(f"Demucs 출력 파일 없음: {track_name}.wav")
 
-        base_url = f"http://3.106.49.28:8000/uploads/separated/{job_id}/htdemucs/{stem_name}"
+        # DB 에는 상대경로로 저장한다 (서버 주소가 바뀌어도 레코드 수정 불필요)
+        base_path = f"/uploads/separated/{job_id}/htdemucs/{stem_name}"
         tracks_dict = {
-            "vocals": f"{base_url}/vocals.wav",
-            "drums":  f"{base_url}/drums.wav",
-            "bass":   f"{base_url}/bass.wav",
-            "other":  f"{base_url}/other.wav",
+            "vocals": f"{base_path}/vocals.wav",
+            "drums":  f"{base_path}/drums.wav",
+            "bass":   f"{base_path}/bass.wav",
+            "other":  f"{base_path}/other.wav",
         }
 
         conn = get_db()
@@ -116,7 +118,8 @@ def separate_audio_task(self, file_path: str, room_id: str, job_id: str):
                 "room_id": room_id,
                 "job_id": job_id,
                 "status": "completed",
-                "tracks": tracks_dict,
+                # 클라이언트에는 완전한 주소로 내보낸다
+                "tracks": {k: public_url(v) for k, v in tracks_dict.items()},
                 "message": "음원 분리가 완료되었습니다."
             }
         }
@@ -140,8 +143,8 @@ def separate_audio_task(self, file_path: str, room_id: str, job_id: str):
         return {"status": "error", "error_message": str(e)}
 
     finally:
-        # 작업이 끝나면 성공/실패 여부와 상관없이 무조건 임시 폴더와 원본 파일을 깔끔하게 삭제합니다.
+        # ffmpeg 변환용 임시 폴더만 정리한다.
+        # 업로드된 원본 음원은 지우지 않는다. audio_file.file_url 이 이 파일을
+        # 가리키고 있어서, 삭제하면 BPM 결과 화면의 재생이 404 가 된다.
         if tmp_dir and os.path.exists(tmp_dir):
             shutil.rmtree(tmp_dir, ignore_errors=True)
-        if os.path.exists(file_path):
-            os.remove(file_path)

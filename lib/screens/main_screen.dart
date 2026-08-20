@@ -1,16 +1,19 @@
 import 'dart:async';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_cropper/image_cropper.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:pdfx/pdfx.dart';
 
 import '../models/bpm_result.dart';
 import '../models/stroke.dart';
 import '../models/track_result.dart';
 import '../services/api_service.dart';
+import '../services/platform_share.dart';
+import '../services/score_pdf_document.dart';
+import '../services/score_pdf_renderer.dart';
 import '../services/websocket_service.dart';
 import '../widgets/room_header.dart';
 import '../widgets/score_canvas.dart';
@@ -35,7 +38,6 @@ class MainScreen extends StatefulWidget {
 
 class _MainScreenState extends State<MainScreen> {
   static const _primary = Color(0xFF0F766E);
-  static const _shareChannel = MethodChannel('ensemble_sync/share');
 
   late final WebSocketService _ws;
 
@@ -48,18 +50,22 @@ class _MainScreenState extends State<MainScreen> {
   final List<Map<String, dynamic>> _participants = [];
 
   Uint8List? _scoreImageBytes;
-  PdfDocument? _pdfDocument;
+  ScorePdfDocument? _pdfDocument;
   int _pdfPageCount = 0;
   final Map<int, Uint8List> _pdfPageCache = {};
   final Set<int> _loadingPdfPages = {};
   int _currentPdfPage = 0;
   bool _isLoadingPdf = false;
+  String? _loadingScoreUrl;
+  String? _loadedScoreUrl;
 
   int _tabIndex = 0;
 
   List<TrackResult> _tracks = [];
   String? _audioFilename;
   Uint8List? _audioBytes;
+  // 업로드된 음원 주소. 웹에서는 바이트 재생이 불가해 이 주소로 재생한다.
+  String? _audioUrl;
 
   String? _bpmJobId;
   BpmResult? _bpmResult;
@@ -172,6 +178,7 @@ class _MainScreenState extends State<MainScreen> {
                 _audioBytes = null;
               }
               _audioFilename = filename;
+              _audioUrl = payload['file_url'] as String?;
             });
           }
           break;
@@ -239,24 +246,34 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   Future<void> _loadScoreFromUrl(String fileUrl) async {
+    if (_loadingScoreUrl == fileUrl || _loadedScoreUrl == fileUrl) return;
+    _loadingScoreUrl = fileUrl;
     try {
       final bytes = await ApiService().downloadScore(fileUrl);
       if (!mounted) return;
       if (fileUrl.toLowerCase().endsWith('.pdf')) {
-        await _loadPdfPages(bytes);
+        final loaded = await _loadPdfPages(bytes);
+        if (!loaded) return;
       } else {
         await _showImageScore(bytes);
       }
+      _loadedScoreUrl = fileUrl;
     } catch (e) {
-      if (mounted) _showSnack('악보 다운로드 실패: $e');
+      debugPrint('Score download failed: $e');
+      if (mounted) _showSnack('악보를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.');
+    } finally {
+      if (_loadingScoreUrl == fileUrl) _loadingScoreUrl = null;
     }
   }
 
-  Future<void> _loadPdfPages(Uint8List bytes) async {
+  Future<bool> _loadPdfPages(Uint8List bytes) async {
     setState(() => _isLoadingPdf = true);
-    PdfDocument? nextDocument;
+    ScorePdfDocument? nextDocument;
     try {
-      nextDocument = await PdfDocument.openData(bytes);
+      if (!_hasPdfHeader(bytes)) {
+        throw const FormatException('Response is not a PDF file');
+      }
+      nextDocument = await openScorePdf(bytes);
       final firstPageBytes = await _renderPdfPageBytes(nextDocument, 0);
       if (firstPageBytes == null) {
         throw Exception('첫 페이지 렌더링 실패');
@@ -265,7 +282,7 @@ class _MainScreenState extends State<MainScreen> {
       if (!mounted) {
         unawaited(nextDocument.close());
         nextDocument = null;
-        return;
+        return false;
       }
 
       final previousDocument = _pdfDocument;
@@ -284,13 +301,32 @@ class _MainScreenState extends State<MainScreen> {
       nextDocument = null;
       unawaited(previousDocument?.close() ?? Future<void>.value());
       _prefetchPdfNeighbors(0);
+      return true;
     } catch (e) {
       unawaited(nextDocument?.close() ?? Future<void>.value());
+      debugPrint('PDF load failed: $e');
       if (mounted) {
         setState(() => _isLoadingPdf = false);
-        _showSnack('PDF 로드 실패: $e');
+        _showSnack('이 PDF를 열 수 없습니다. 파일을 확인한 뒤 다시 업로드해주세요.');
       }
+      return false;
     }
+  }
+
+  bool _hasPdfHeader(Uint8List bytes) {
+    const signature = [0x25, 0x50, 0x44, 0x46, 0x2D]; // %PDF-
+    final searchLength = bytes.length < 1024 ? bytes.length : 1024;
+    for (var offset = 0; offset <= searchLength - signature.length; offset++) {
+      var matches = true;
+      for (var index = 0; index < signature.length; index++) {
+        if (bytes[offset + index] != signature[index]) {
+          matches = false;
+          break;
+        }
+      }
+      if (matches) return true;
+    }
+    return false;
   }
 
   Future<void> _showImageScore(Uint8List bytes) async {
@@ -310,22 +346,10 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   Future<Uint8List?> _renderPdfPageBytes(
-    PdfDocument document,
+    ScorePdfDocument document,
     int pageIndex,
-  ) async {
-    final page = await document.getPage(pageIndex + 1);
-    try {
-      final image = await page.render(
-        width: page.width * 2,
-        height: page.height * 2,
-        format: PdfPageImageFormat.jpeg,
-        backgroundColor: '#ffffff',
-      );
-      return image?.bytes;
-    } finally {
-      await page.close();
-    }
-  }
+  ) =>
+      document.renderPage(pageIndex);
 
   Future<void> _ensurePdfPageRendered(int pageIndex) async {
     final document = _pdfDocument;
@@ -370,15 +394,19 @@ class _MainScreenState extends State<MainScreen> {
 
   Future<void> _uploadScore(Uint8List bytes, String filename) async {
     try {
-      await ApiService().uploadScore(widget.roomId, bytes, filename);
+      final fileUrl =
+          await ApiService().uploadScore(widget.roomId, bytes, filename);
+      _loadedScoreUrl = fileUrl;
     } catch (e) {
       if (mounted) _showSnack('업로드 실패: $e');
     }
   }
 
-  Future<Uint8List?> _cropImage(String path) async {
+  Future<Uint8List?> _preparePickedImage(XFile image) async {
+    if (kIsWeb) return image.readAsBytes();
+
     final cropped = await ImageCropper().cropImage(
-      sourcePath: path,
+      sourcePath: image.path,
       uiSettings: [
         AndroidUiSettings(
           toolbarTitle: '영역 선택',
@@ -454,7 +482,7 @@ class _MainScreenState extends State<MainScreen> {
                 final img =
                     await ImagePicker().pickImage(source: ImageSource.camera);
                 if (img == null) return;
-                final bytes = await _cropImage(img.path);
+                final bytes = await _preparePickedImage(img);
                 if (bytes == null) return;
                 if (mounted) await _showImageScore(bytes);
                 await _uploadScore(bytes, img.name);
@@ -468,7 +496,7 @@ class _MainScreenState extends State<MainScreen> {
                 final img =
                     await ImagePicker().pickImage(source: ImageSource.gallery);
                 if (img == null) return;
-                final bytes = await _cropImage(img.path);
+                final bytes = await _preparePickedImage(img);
                 if (bytes == null) return;
                 if (mounted) await _showImageScore(bytes);
                 await _uploadScore(bytes, img.name);
@@ -620,7 +648,7 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   String get _roomShareText =>
-      'EnsembleSync 방 코드: ${widget.roomCode}\n앱에서 방 참가를 눌러 이 코드를 입력해주세요.';
+      'Bandly 방 코드: ${widget.roomCode}\n앱에서 방 참가를 눌러 이 코드를 입력해주세요.';
 
   Future<void> _copyRoomCode() async {
     await Clipboard.setData(ClipboardData(text: widget.roomCode));
@@ -629,16 +657,19 @@ class _MainScreenState extends State<MainScreen> {
 
   Future<void> _shareRoomCodeToKakao() async {
     try {
-      final shared = await _shareChannel.invokeMethod<bool>(
-        'shareToKakao',
-        {'text': _roomShareText},
-      );
-      if (mounted && shared != true) {
-        _showSnack('카카오톡이 설치되어 있지 않습니다.');
+      final shared = await PlatformShare.shareRoomText(_roomShareText);
+      if (mounted && !shared) {
+        await _copyRoomCode();
+        _showSnack('공유를 지원하지 않아 방 코드를 복사했습니다.');
       }
     } on PlatformException catch (e) {
       if (mounted) {
-        _showSnack('카카오톡 공유 실패: ${e.message ?? e.code}');
+        _showSnack('공유 실패: ${e.message ?? e.code}');
+      }
+    } catch (_) {
+      if (mounted) {
+        await _copyRoomCode();
+        _showSnack('공유 실패로 방 코드를 복사했습니다.');
       }
     }
   }
@@ -796,11 +827,15 @@ class _MainScreenState extends State<MainScreen> {
             _audioBytes = bytes;
             _audioFilename = filename;
           }),
+          onAudioUrl: (url) {
+            if (mounted) setState(() => _audioUrl = url);
+          },
         ),
         ResultTab(
           tracks: _tracks,
           audioFilename: _audioFilename,
           audioBytes: _audioBytes,
+          audioUrl: _audioUrl,
           bpmJobId: _bpmJobId,
           bpmResult: _bpmResult,
           preferredMode: _preferredResultMode,

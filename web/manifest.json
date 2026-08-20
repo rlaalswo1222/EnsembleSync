@@ -1,11 +1,11 @@
 {
-    "name": "ensemble_sync",
-    "short_name": "ensemble_sync",
+    "name": "Bandly",
+    "short_name": "Bandly",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#E8F3F1",
+    "theme_color": "#0F766E",
+    "description": "Bandly music collaboration app.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

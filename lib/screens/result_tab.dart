@@ -14,6 +14,7 @@ class ResultTab extends StatefulWidget {
   final List<TrackResult> tracks;
   final String? audioFilename;
   final Uint8List? audioBytes;
+  final String? audioUrl;
   final String? bpmJobId;
   final BpmResult? bpmResult;
   final ResultMode? preferredMode;
@@ -23,6 +24,7 @@ class ResultTab extends StatefulWidget {
     required this.tracks,
     this.audioFilename,
     this.audioBytes,
+    this.audioUrl,
     this.bpmJobId,
     this.bpmResult,
     this.preferredMode,
@@ -113,6 +115,7 @@ class _ResultTabState extends State<ResultTab> {
           result: _bpmResult!,
           audioFilename: widget.audioFilename,
           audioBytes: widget.audioBytes,
+          audioUrl: widget.audioUrl,
         );
       case ResultMode.track:
         return TrackResultView(

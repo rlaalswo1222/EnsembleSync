@@ -1,0 +1,87 @@
+# api / worker 가 공유하는 환경변수 (YAML 앵커로 중복 제거)
+x-backend-env: &backend-env
+  # 컨테이너끼리는 서비스 이름으로 서로를 찾는다 (localhost 아님)
+  DB_HOST: db
+  DB_NAME: ${DB_NAME}
+  DB_USER: ${DB_USER}
+  DB_PASSWORD: ${DB_PASSWORD}
+  REDIS_HOST: redis
+  REDIS_PORT: 6379
+  PUBLIC_BASE_URL: http://localhost:8000
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      # 데이터 영속화 — 컨테이너를 지워도 DB 내용은 남는다
+      - pgdata:/var/lib/postgresql/data
+      # 최초 기동 시 DDL 자동 실행 (이 폴더의 .sql 을 알아서 돌려줌)
+      - ../ensemblesync_ddl.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment: *backend-env
+    volumes:
+      # 업로드된 파일은 컨테이너 밖에 보관
+      - ./uploads:/app/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # 두 워커는 같은 이미지를 공유하고 담당 큐만 다르다 (EC2 systemd 구성과 동일)
+  worker-bpm:
+    image: ensemblesync-worker
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    command: celery -A bpm_analyze.celery_app worker --loglevel=info -Q bpm -n bpm@%h
+    environment: *backend-env
+    volumes:
+      - ./uploads:/app/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker-separation:
+    # 빌드 정의는 worker-bpm 한 곳에만 둔다. 두 서비스가 같은 태그를 동시에
+    # export 하려다 "image already exists" 로 빌드가 실패한다.
+    image: ensemblesync-worker
+    pull_policy: never
+    command: celery -A track_separate.celery_app worker --loglevel=info -Q separation -n separation@%h
+    environment: *backend-env
+    volumes:
+      - ./uploads:/app/uploads
+      # demucs 모델 가중치 캐시 (재시작마다 다시 받지 않도록)
+      - modelcache:/home/app/.cache
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  modelcache:

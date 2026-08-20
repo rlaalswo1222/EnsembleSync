@@ -1,0 +1,8 @@
+# 컨테이너로 띄우는 Caddy 설정.
+# SITE_ADDRESS 는 compose 의 환경변수로 주입한다.
+#   예) 152-70-1-2.sslip.io
+# sslip.io 는 IP 를 그대로 도메인으로 바꿔주므로 별도 DNS 등록이 필요 없고,
+# Caddy 가 Let's Encrypt 인증서를 자동 발급·갱신한다.
+{$SITE_ADDRESS} {
+	reverse_proxy api:8000
+}

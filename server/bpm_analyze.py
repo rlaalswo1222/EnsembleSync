@@ -6,6 +6,7 @@ import numpy as np
 from urllib.parse import urlparse
 from celery_app import celery_app
 from database import get_db
+from config import REDIS_HOST, REDIS_PORT
 
 
 @celery_app.task(bind=True, name="tasks.bpm_analysis")
@@ -128,7 +129,7 @@ def bpm_analysis_task(self, job_id: str, audio_file_id: str):
         conn.commit()
 
         # 6. WebSocket 푸시
-        redis_client = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
+        redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0, decode_responses=True)
         redis_client.publish(f"room_{room_id}", json.dumps({
             "type": "bpm_analyzed",
             "room_id": room_id,

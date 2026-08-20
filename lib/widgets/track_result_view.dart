@@ -1,11 +1,11 @@
 import 'dart:async';
 
 import 'package:audioplayers/audioplayers.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../models/track_result.dart';
 import '../services/api_service.dart';
+import '../services/platform_download.dart';
 
 class TrackResultView extends StatefulWidget {
   final List<TrackResult> tracks;
@@ -287,12 +287,11 @@ class _TrackResultViewState extends State<TrackResultView> {
       );
 
       final extension = _trackExtension(track);
-      final savedPath = await FilePicker.platform.saveFile(
-        dialogTitle: '트랙 저장 위치 선택',
-        fileName: filename,
-        type: FileType.custom,
-        allowedExtensions: [extension],
+      final savedPath = await PlatformDownload.saveBytes(
         bytes: bytes,
+        filename: filename,
+        allowedExtensions: [extension],
+        dialogTitle: '트랙 저장 위치 선택',
       );
 
       if (!context.mounted) return;

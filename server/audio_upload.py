@@ -1,6 +1,7 @@
 from fastapi import APIRouter, UploadFile, File
 import psycopg2.extras
 from database import get_db
+from config import REDIS_HOST, REDIS_PORT, public_url
 import uuid
 import shutil
 import os
@@ -12,7 +13,7 @@ router = APIRouter()
 ALLOWED_EXTENSIONS = {'mp3', 'wav', 'flac', 'm4a'}
 ALLOWED_PURPOSES = {'bpm', 'pitch', 'separation'}
 UPLOAD_DIR = "uploads/audio"
-redis_client = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
+redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0, decode_responses=True)
 
 
 def publish_room_event(room_id: str, message: dict):
@@ -68,8 +69,9 @@ async def upload_audio(
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
 
-        # 5. EC2 URL 생성
-        file_url = f"http://3.106.49.28:8000/uploads/audio/{room_id}/{audio_id}.{ext}"
+        # 5. 저장 경로 (DB 에는 상대경로로 남긴다.
+        #    절대 URL 을 넣으면 서버를 옮길 때마다 모든 레코드를 고쳐야 한다.)
+        file_url = f"/uploads/audio/{room_id}/{audio_id}.{ext}"
 
         # 6. DB에 audio_file 테이블 INSERT
         cur.execute(
@@ -87,7 +89,7 @@ async def upload_audio(
             "payload": {
                 "room_id": room_id,
                 "audio_file_id": audio_id,
-                "file_url": file_url,
+                "file_url": public_url(file_url),
                 "filename": file.filename,
                 "purpose": purpose,
             },
@@ -97,7 +99,7 @@ async def upload_audio(
             "status": 200,
             "room_id": room_id,
             "audio_file_id": audio_id,
-            "file_url": file_url,
+            "file_url": public_url(file_url),
             "purpose": purpose,
             "message": "음원 파일이 성공적으로 업로드되었습니다."
         }

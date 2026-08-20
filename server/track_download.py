@@ -3,6 +3,13 @@ from fastapi.responses import FileResponse
 import psycopg2.extras
 from database import get_db
 from celery_app import celery_app
+from config import (
+    REDIS_HOST,
+    REDIS_PORT,
+    local_upload_path,
+    normalize_public_url,
+    public_url,
+)
 import uuid
 import shutil
 import os
@@ -12,7 +19,7 @@ import redis
 router = APIRouter()
 
 ALLOWED_AUDIO_EXTENSIONS = {'mp3', 'wav', 'flac', 'm4a'}
-redis_client = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
+redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0, decode_responses=True)
 
 
 def publish_room_event(room_id: str, message: dict):
@@ -48,7 +55,8 @@ async def request_track_separation(
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
 
-        file_url = f"http://3.106.49.28:8000/uploads/audio/{room_id}/{audio_id}.{ext}"
+        # DB 에는 상대경로로 저장한다 (서버 주소가 바뀌어도 레코드 수정 불필요)
+        file_url = f"/uploads/audio/{room_id}/{audio_id}.{ext}"
         cur.execute(
             "INSERT INTO audio_file (id, room_id, file_type, file_url, purpose, uploaded_at) VALUES (%s, %s, %s, %s, 'separation', now())",
             (audio_id, room_id, ext, file_url)
@@ -66,7 +74,7 @@ async def request_track_separation(
             "payload": {
                 "room_id": room_id,
                 "audio_file_id": audio_id,
-                "file_url": file_url,
+                "file_url": public_url(file_url),
                 "filename": file.filename,
                 "purpose": "separation",
             },
@@ -144,7 +152,7 @@ async def get_track_list(job_id: str):
                 {
                     "track_id": str(t['id']),
                     "track_type": t['track_type'],
-                    "file_url": t['file_url'],
+                    "file_url": normalize_public_url(t['file_url']),
                     "created_at": str(t['created_at'])
                 }
                 for t in tracks
@@ -186,7 +194,7 @@ async def download_track(job_id: str, track_type: str):
 
         # 파일 경로 추출
         file_url = track['file_url']
-        file_path = file_url.replace("http://3.106.49.28:8000/", "")
+        file_path = local_upload_path(file_url)
 
         if not os.path.exists(file_path):
             return {"status": 404, "message": "파일이 서버에 존재하지 않습니다."}
