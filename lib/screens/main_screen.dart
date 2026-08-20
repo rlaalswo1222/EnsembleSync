@@ -62,6 +62,7 @@ class _MainScreenState extends State<MainScreen> {
   int _tabIndex = 0;
 
   List<TrackResult> _tracks = [];
+  String? _analysisUrl;
   String? _audioFilename;
   Uint8List? _audioBytes;
   // 업로드된 음원 주소. 웹에서는 바이트 재생이 불가해 이 주소로 재생한다.
@@ -185,35 +186,43 @@ class _MainScreenState extends State<MainScreen> {
         case WsEventType.trackSeparated:
           final payload = event.data['payload'] as Map<String, dynamic>? ?? {};
           final tracksJson = payload['tracks'] as Map<String, dynamic>? ?? {};
+          // 재생용 mp3. 변환에 실패한 트랙은 여기에 없고 wav 로 재생된다.
+          final streamsJson = payload['streams'] as Map<String, dynamic>? ?? {};
           final results = <TrackResult>[
             if (tracksJson['vocals'] != null)
               TrackResult(
                 label: '보컬',
                 url: tracksJson['vocals'] as String,
+                streamUrl: streamsJson['vocals'] as String?,
                 icon: Icons.music_note_rounded,
               ),
             if (tracksJson['drums'] != null)
               TrackResult(
                 label: '드럼',
                 url: tracksJson['drums'] as String,
+                streamUrl: streamsJson['drums'] as String?,
                 icon: Icons.graphic_eq_rounded,
               ),
             if (tracksJson['bass'] != null)
               TrackResult(
                 label: '베이스',
                 url: tracksJson['bass'] as String,
+                streamUrl: streamsJson['bass'] as String?,
                 icon: Icons.bar_chart_rounded,
               ),
             if (tracksJson['other'] != null)
               TrackResult(
                 label: '기타',
                 url: tracksJson['other'] as String,
+                streamUrl: streamsJson['other'] as String?,
                 icon: Icons.queue_music_rounded,
               ),
           ];
           if (mounted) {
             setState(() {
               _tracks = results;
+              // 분석이 실패한 곡이면 null 로 온다. 그때는 파형/코드 없이 재생만 된다.
+              _analysisUrl = payload['analysis_url'] as String?;
               _preferredResultMode = ResultMode.track;
               _tabIndex = 2;
             });
@@ -833,6 +842,7 @@ class _MainScreenState extends State<MainScreen> {
         ),
         ResultTab(
           tracks: _tracks,
+          analysisUrl: _analysisUrl,
           audioFilename: _audioFilename,
           audioBytes: _audioBytes,
           audioUrl: _audioUrl,
