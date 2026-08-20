@@ -138,6 +138,20 @@ services:
     restart: unless-stopped
     logging: *logging
 
+  # 정리 태스크 스케줄러. 매일 새벽 4시에 cleanup_separated 를 bpm 큐로 보낸다.
+  beat:
+    image: ensemblesync-worker
+    pull_policy: never
+    command: celery -A celery_app.celery_app beat --loglevel=info
+    environment: *backend-env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    logging: *logging
+
 volumes:
   pgdata:
   modelcache:
