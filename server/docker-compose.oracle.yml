@@ -13,6 +13,11 @@
 #   /home/ubuntu/server/          ← 이 파일과 소스가 여기
 #   /home/ubuntu/uploads/         ← 업로드 파일 (EC2 에서 옮겨옴)
 #
+# 주의: 컨테이너는 uid 1000(app) 으로 실행되는데 Oracle Ubuntu 의 ubuntu 유저는
+# uid 1001 이다(EC2 는 1000 이었다). uploads 소유권이 1001 이면 컨테이너가 쓰지
+# 못하므로 이전 후 한 번 맞춰줘야 한다:
+#   sudo chown -R 1000:1000 /home/ubuntu/uploads
+#
 # 사용법:
 #   cd ~/server
 #   docker compose -f docker-compose.oracle.yml up -d --build
