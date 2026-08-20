@@ -6,12 +6,13 @@ import '../models/bpm_result.dart';
 import '../models/track_result.dart';
 import '../services/api_service.dart';
 import '../widgets/bpm_result_view.dart';
-import '../widgets/track_result_view.dart';
+import '../widgets/mixer_workspace.dart';
 
 enum ResultMode { bpm, track, empty }
 
 class ResultTab extends StatefulWidget {
   final List<TrackResult> tracks;
+  final String? analysisUrl;
   final String? audioFilename;
   final Uint8List? audioBytes;
   final String? audioUrl;
@@ -22,6 +23,7 @@ class ResultTab extends StatefulWidget {
   const ResultTab({
     super.key,
     required this.tracks,
+    this.analysisUrl,
     this.audioFilename,
     this.audioBytes,
     this.audioUrl,
@@ -118,9 +120,15 @@ class _ResultTabState extends State<ResultTab> {
           audioUrl: widget.audioUrl,
         );
       case ResultMode.track:
-        return TrackResultView(
+        return MixerWorkspace(
+          // 트랙 목록이 바뀌면 엔진을 처음부터 다시 만든다. 이전 곡의
+          // 오디오가 남아 있으면 새 곡과 겹쳐서 재생된다.
+          key: ValueKey<String>(
+            widget.tracks.map((TrackResult t) => t.url).join('|'),
+          ),
           tracks: widget.tracks,
-          audioFilename: widget.audioFilename,
+          analysisUrl: widget.analysisUrl,
+          bpm: _bpmResult?.baseBpm,
         );
       case ResultMode.empty:
         return const _EmptyResultView();
