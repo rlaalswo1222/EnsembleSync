@@ -9,10 +9,49 @@ import json
 import redis
 from database import get_db
 from celery_app import celery_app
+import track_analysis
 from config import REDIS_HOST, REDIS_PORT, public_url
 
 # Redis 클라이언트 (pub/sub용)
 redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0, decode_responses=True)
+
+STEM_NAMES = ["vocals", "drums", "bass", "other"]
+
+# 재생용 mp3 의 비트레이트. 분리 트랙은 원래 완벽한 음질이 아니라 192k 면 충분하다.
+MP3_BITRATE = "192k"
+
+
+def _encode_mp3(demucs_out: Path) -> dict:
+    """스템 wav 를 재생용 mp3 로 변환한다. {스템: 파일명} 을 돌려준다.
+
+    demucs 가 내놓는 wav 는 4분 곡 기준 트랙당 40MB 라 4개를 받으면 160MB 다.
+    SoLoud 는 스트리밍이 아니라 파일 전체를 메모리에 올려놓고 재생하므로,
+    그대로 두면 재생 시작 전에 160MB 를 받아야 한다. mp3 로 7배 줄인다.
+
+    원본 wav 는 지우지 않는다. 다운로드는 계속 무손실로 받게 한다.
+    """
+    procs = {}
+    for name in STEM_NAMES:
+        src = demucs_out / f"{name}.wav"
+        if not src.exists():
+            continue
+        dst = demucs_out / f"{name}.mp3"
+        # 4개는 서로 독립이라 동시에 돌린다. 순차 변환보다 눈에 띄게 빠르다.
+        procs[name] = (dst, subprocess.Popen(
+            ["ffmpeg", "-y", "-loglevel", "error", "-i", str(src),
+             "-codec:a", "libmp3lame", "-b:a", MP3_BITRATE, str(dst)],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        ))
+
+    encoded = {}
+    for name, (dst, proc) in procs.items():
+        try:
+            if proc.wait(timeout=600) == 0 and dst.exists():
+                encoded[name] = dst.name
+        except Exception as e:
+            proc.kill()
+            print(f"[mp3] {name} 변환 실패: {e}")
+    return encoded
 
 @celery_app.task(bind=True, name="separate_audio_task")
 def separate_audio_task(self, file_path: str, room_id: str, job_id: str):
@@ -77,17 +116,49 @@ def separate_audio_task(self, file_path: str, room_id: str, job_id: str):
 
         stem_name = Path(input_path).stem
         demucs_out = Path(output_base_dir) / "htdemucs" / stem_name
-        for track_name in ["vocals", "drums", "bass", "other"]:
+        for track_name in STEM_NAMES:
             if not (demucs_out / f"{track_name}.wav").exists():
                 raise Exception(f"Demucs 출력 파일 없음: {track_name}.wav")
 
+        # 파형/키/코드 분석. 여기서 돌리는 이유는 ffmpeg 이 만든 WAV 와 스템이
+        # 아직 디스크에 있어서 디코딩을 다시 안 해도 되기 때문이다.
+        # 4분 곡 기준 8초 안팎 (워커가 막 뜬 첫 작업은 numba 컴파일로 더 걸린다).
+        # 실패해도 분리 결과는 그대로 살린다. 부가 정보일 뿐이다.
+        analysis_ready = False
+        try:
+            track_analysis.analyze(
+                mix_path=input_path,
+                stem_paths={
+                    t: str(demucs_out / f"{t}.wav")
+                    for t in STEM_NAMES
+                },
+                out_path=os.path.join(output_base_dir, "analysis.json"),
+            )
+            analysis_ready = True
+        except Exception as analysis_error:
+            print(f"[track_analysis] 분석 실패 (분리는 정상): {analysis_error}")
+
+        # 재생용 mp3. 실패한 트랙은 그냥 wav 로 재생하게 둔다.
+        mp3_names = {}
+        try:
+            mp3_names = _encode_mp3(demucs_out)
+        except Exception as mp3_error:
+            print(f"[mp3] 변환 건너뜀 (분리는 정상): {mp3_error}")
+
         # DB 에는 상대경로로 저장한다 (서버 주소가 바뀌어도 레코드 수정 불필요)
         base_path = f"/uploads/separated/{job_id}/htdemucs/{stem_name}"
+        analysis_url = f"/uploads/separated/{job_id}/analysis.json"
         tracks_dict = {
             "vocals": f"{base_path}/vocals.wav",
             "drums":  f"{base_path}/drums.wav",
             "bass":   f"{base_path}/bass.wav",
             "other":  f"{base_path}/other.wav",
+        }
+
+        # 재생에 쓸 주소. wav 는 다운로드용으로 그대로 남는다.
+        streams_dict = {
+            name: f"{base_path}/{filename}"
+            for name, filename in mp3_names.items()
         }
 
         conn = get_db()
@@ -120,6 +191,8 @@ def separate_audio_task(self, file_path: str, room_id: str, job_id: str):
                 "status": "completed",
                 # 클라이언트에는 완전한 주소로 내보낸다
                 "tracks": {k: public_url(v) for k, v in tracks_dict.items()},
+                "streams": {k: public_url(v) for k, v in streams_dict.items()},
+                "analysis_url": public_url(analysis_url) if analysis_ready else None,
                 "message": "음원 분리가 완료되었습니다."
             }
         }
