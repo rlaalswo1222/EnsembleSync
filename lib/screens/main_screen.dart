@@ -62,6 +62,20 @@ class _MainScreenState extends State<MainScreen> {
 
   int _tabIndex = 0;
 
+  /// 스템 이름 → (화면 이름, 아이콘). 순서가 곧 화면에 쌓이는 순서다.
+  ///
+  /// 'other' 를 '기타'로 부르던 때가 있었는데, 6트랙 모델부터는 진짜 기타가
+  /// 따로 나온다. 겹치지 않게 '나머지'로 바꿨다.
+  static const Map<String, (String, IconData)> _stemLabels =
+      <String, (String, IconData)>{
+    'vocals': ('보컬', Icons.mic_rounded),
+    'drums': ('드럼', Icons.graphic_eq_rounded),
+    'bass': ('베이스', Icons.bar_chart_rounded),
+    'guitar': ('기타', Icons.music_note_rounded),
+    'piano': ('피아노', Icons.piano_rounded),
+    'other': ('나머지', Icons.queue_music_rounded),
+  };
+
   List<TrackResult> _tracks = [];
   String? _analysisUrl;
   String? _audioFilename;
@@ -193,34 +207,14 @@ class _MainScreenState extends State<MainScreen> {
           // 재생용 mp3. 변환에 실패한 트랙은 여기에 없고 wav 로 재생된다.
           final streamsJson = payload['streams'] as Map<String, dynamic>? ?? {};
           final results = <TrackResult>[
-            if (tracksJson['vocals'] != null)
-              TrackResult(
-                label: '보컬',
-                url: tracksJson['vocals'] as String,
-                streamUrl: streamsJson['vocals'] as String?,
-                icon: Icons.music_note_rounded,
-              ),
-            if (tracksJson['drums'] != null)
-              TrackResult(
-                label: '드럼',
-                url: tracksJson['drums'] as String,
-                streamUrl: streamsJson['drums'] as String?,
-                icon: Icons.graphic_eq_rounded,
-              ),
-            if (tracksJson['bass'] != null)
-              TrackResult(
-                label: '베이스',
-                url: tracksJson['bass'] as String,
-                streamUrl: streamsJson['bass'] as String?,
-                icon: Icons.bar_chart_rounded,
-              ),
-            if (tracksJson['other'] != null)
-              TrackResult(
-                label: '기타',
-                url: tracksJson['other'] as String,
-                streamUrl: streamsJson['other'] as String?,
-                icon: Icons.queue_music_rounded,
-              ),
+            for (final entry in _stemLabels.entries)
+              if (tracksJson[entry.key] != null)
+                TrackResult(
+                  label: entry.value.$1,
+                  url: tracksJson[entry.key] as String,
+                  streamUrl: streamsJson[entry.key] as String?,
+                  icon: entry.value.$2,
+                ),
           ];
           if (mounted) {
             setState(() {

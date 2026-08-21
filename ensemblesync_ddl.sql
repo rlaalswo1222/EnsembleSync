@@ -164,8 +164,11 @@ CREATE TABLE separated_track (
     id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     job_id      UUID        NOT NULL REFERENCES analysis_job(id) ON DELETE CASCADE,
     track_type  VARCHAR(20) NOT NULL
-                -- Demucs htdemucs 가 실제로 내보내는 4트랙 (guitar 아님)
-                CHECK (track_type IN ('vocals', 'drums', 'bass', 'other')),
+                -- Demucs htdemucs_6s 가 내보내는 6트랙.
+                -- 기본 4트랙(htdemucs)만 쓰던 시절의 레코드도 있으므로
+                -- 옛 4종은 그대로 두고 guitar, piano 를 더한다.
+                CHECK (track_type IN ('vocals', 'drums', 'bass', 'other',
+                                      'guitar', 'piano')),
     file_url    TEXT        NOT NULL,   -- S3/MinIO 분리 트랙 URL (UC-12 6단계)
     created_at  TIMESTAMP   NOT NULL DEFAULT now()
 );
@@ -180,7 +183,7 @@ CREATE TABLE separated_track (
 -- FR-06 sync_result.overall_sync_pct
 -- FR-07 sync_result.deviation_timeline JSONB
 -- FR-08 pitch_result.pitch_timeline JSONB
--- FR-09 separated_track.track_type CHECK (4종)
+-- FR-09 separated_track.track_type CHECK (6종)
 -- FR-10 separated_track.file_url
 -- FR-11 analysis_job.status (pending→processing→done/failed)
 -- FR-12 analysis_job.celery_task_id (WebSocket push 연동)
