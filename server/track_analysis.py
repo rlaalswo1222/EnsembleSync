@@ -42,6 +42,38 @@ _MINOR_TRIAD = [0, 3, 7]
 # 이보다 짧은 코드 구간은 잡음으로 보고 앞 구간에 흡수시킨다.
 MIN_CHORD_DURATION = 0.4
 
+# 키와 코드를 판정할 때 쓰는 스템과 섞는 비율.
+#
+# 드럼은 음정이 없는데도 타격음이 크로마 전 음에 퍼져서 판정을 흐린다.
+# 보통은 하모닉 성분 분리(HPSS)를 돌려 걷어내는데 연산이 무겁다. 우리는
+# demucs 가 이미 갈라 놓았으니 그냥 빼면 된다.
+#
+# 보컬도 뺀다. 선율은 화성 밖 음을 자주 지나가서 코드 판정을 흔든다.
+# other 가 기타·건반 같은 화성, bass 가 근음을 맡는다.
+HARMONIC_STEMS = {"other": 1.0, "bass": 0.8}
+
+# 크로마를 뽑을 음역. C3 아래는 버린다.
+#
+# 베이스의 저음역은 CQT 해상도가 낮아 인접 반음으로 번진다. 실제로 이 곡의
+# 한 구간에서 베이스만 뽑으면 G:1.00 옆에 G#:0.82 가 나란히 섰고, 그 탓에
+# 3음을 정하지 못해 B단조 곡에 Gm 이 나왔다. 저역을 잘라내니 같은 구간이
+# 반복 진행으로 또렷해졌다.
+#
+# 근음 정보를 잃는 게 아니다. 베이스가 내는 음의 배음은 C3 위에도 있다.
+CHROMA_FMIN_NOTE = "C3"
+CHROMA_OCTAVES = 4
+
+# 조성 안 3화음에 얹는 점수.
+#
+# 조성 밖 코드를 막자는 게 아니다. 차용 화음이나 부속화음은 실제로 흔하고,
+# 그것까지 걸러내면 맞는 답을 못 낸다. 근거가 팽팽할 때만 조성 안쪽으로
+# 기울이라는 뜻이다.
+#
+# 크기를 실측해서 정했다. 1등과 2등 코드의 점수 차는 중앙값이 0.018 이라,
+# 처음에 쓰려던 0.04 는 프레임의 32%를 뒤집었다. 그건 가중치가 아니라
+# 판정을 대신하는 것이다. 0.005 면 5% 안쪽만 뒤집는다.
+DIATONIC_BONUS = 0.005
+
 
 def waveform_peaks(path: str, per_second: int = PEAKS_PER_SECOND) -> list:
     """오디오 파일을 구간별 최대 진폭 배열로 줄인다.
@@ -101,6 +133,30 @@ def detect_key(chroma: np.ndarray) -> dict:
     }
 
 
+def _diatonic_bonus(key: dict) -> np.ndarray:
+    """조성 안 3화음에 [DIATONIC_BONUS] 를 얹은 24칸 배열.
+
+    배열 순서는 [_chord_templates] 와 같다 (근음 순, 각 근음마다 장·단).
+    """
+    bonus = np.zeros(24)
+    tonic_name, mode = key.get("tonic"), key.get("mode")
+    if tonic_name not in PITCH_NAMES or mode not in ("major", "minor"):
+        return bonus
+
+    tonic = PITCH_NAMES.index(tonic_name)
+    if mode == "major":
+        # I ii iii IV V vi
+        degrees = [(0, 0), (2, 1), (4, 1), (5, 0), (7, 0), (9, 1)]
+    else:
+        # i III iv v VI VII 에 화성단음계의 V(장3화음) 를 더한다.
+        # 단조에서 딸림화음을 장3화음으로 쓰는 건 예외가 아니라 관용이다.
+        degrees = [(0, 1), (3, 0), (5, 1), (7, 1), (8, 0), (10, 0), (7, 0)]
+
+    for step, quality in degrees:
+        bonus[((tonic + step) % 12) * 2 + quality] = DIATONIC_BONUS
+    return bonus
+
+
 def _chord_templates() -> tuple:
     """24개 3화음 템플릿과 이름표를 만든다."""
     templates, labels = [], []
@@ -114,7 +170,9 @@ def _chord_templates() -> tuple:
     return np.array(templates), labels
 
 
-def detect_chords(chroma: np.ndarray, sr: int, hop_length: int) -> list:
+def detect_chords(
+    chroma: np.ndarray, sr: int, hop_length: int, key: dict = None
+) -> list:
     """프레임별로 가장 가까운 3화음을 고른 뒤 같은 코드끼리 구간으로 합친다."""
     templates, labels = _chord_templates()
 
@@ -124,7 +182,11 @@ def detect_chords(chroma: np.ndarray, sr: int, hop_length: int) -> list:
     safe = np.where(silent, 1.0, norms)
     normalized = chroma / safe
 
-    best = (templates @ normalized).argmax(axis=0)
+    scores = templates @ normalized
+    if key:
+        # 조성 가중치는 프레임마다 같은 값을 더하는 것이라 접전만 뒤집는다.
+        scores += _diatonic_bonus(key)[:, np.newaxis]
+    best = scores.argmax(axis=0)
 
     # 프레임 단위 판정은 심하게 튄다. 약 1초 창의 최빈값으로 눌러준다.
     window = max(1, int(round(sr / hop_length)))
@@ -173,10 +235,34 @@ def _merge_short(segments: list) -> list:
     return merged
 
 
+def _harmonic_signal(stem_paths: dict, mix_path: str):
+    """키·코드 판정에 쓸 신호를 만든다.
+
+    [HARMONIC_STEMS] 의 스템을 섞어 쓴다. 그 스템이 하나도 없으면
+    (분석만 따로 돌리는 경우 등) 원본 믹스로 물러선다.
+    """
+    mixed = None
+    for name, weight in HARMONIC_STEMS.items():
+        path = stem_paths.get(name)
+        if not path or not os.path.exists(path):
+            continue
+        y, _ = librosa.load(path, sr=ANALYSIS_SR, mono=True)
+        y = y * weight
+        if mixed is None:
+            mixed = y
+        else:
+            size = min(len(mixed), len(y))
+            mixed = mixed[:size] + y[:size]
+
+    if mixed is None:
+        mixed, _ = librosa.load(mix_path, sr=ANALYSIS_SR, mono=True)
+    return mixed
+
+
 def analyze(mix_path: str, stem_paths: dict, out_path: str) -> dict:
     """분석 일체를 돌리고 JSON 으로 저장한다.
 
-    [mix_path] 는 키/코드 분석에 쓰는 원본(또는 ffmpeg 변환본),
+    [mix_path] 는 길이를 재고 하모닉 스템이 없을 때 물러설 원본,
     [stem_paths] 는 {트랙이름: wav 경로} 형태의 분리 결과다.
     """
     peaks = {}
@@ -187,17 +273,24 @@ def analyze(mix_path: str, stem_paths: dict, out_path: str) -> dict:
         peaks[name] = waveform_peaks(path)
         duration = max(duration, len(peaks[name]) / PEAKS_PER_SECOND)
 
-    y, sr = librosa.load(mix_path, sr=ANALYSIS_SR, mono=True)
-    chroma = librosa.feature.chroma_cqt(y=y, sr=sr, hop_length=HOP_LENGTH)
+    y = _harmonic_signal(stem_paths, mix_path)
+    chroma = librosa.feature.chroma_cqt(
+        y=y,
+        sr=ANALYSIS_SR,
+        hop_length=HOP_LENGTH,
+        fmin=librosa.note_to_hz(CHROMA_FMIN_NOTE),
+        n_octaves=CHROMA_OCTAVES,
+    )
+    key = detect_key(chroma)
 
     result = {
-        "version": 1,
-        "duration": round(duration or float(len(y)) / sr, 2),
+        "version": 2,
+        "duration": round(duration or float(len(y)) / ANALYSIS_SR, 2),
         "peaks_per_second": PEAKS_PER_SECOND,
         "peak_scale": PEAK_SCALE,
         "peaks": peaks,
-        "key": detect_key(chroma),
-        "chords": detect_chords(chroma, sr, HOP_LENGTH),
+        "key": key,
+        "chords": detect_chords(chroma, ANALYSIS_SR, HOP_LENGTH, key=key),
     }
 
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
