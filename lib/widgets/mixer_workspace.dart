@@ -3,12 +3,14 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
+import '../models/bpm_result.dart';
+import '../theme/tokens.dart';
 import '../models/track_analysis.dart';
 import '../models/track_result.dart';
 import '../services/api_service.dart';
 import '../services/mixer_engine.dart';
 import '../services/platform_download.dart';
-import 'chord_timeline.dart';
+import 'bpm_result_view.dart';
 import 'waveform_strip.dart';
 
 /// 분리된 트랙을 한 화면에서 함께 다루는 작업 화면.
@@ -20,7 +22,9 @@ class MixerWorkspace extends StatefulWidget {
     super.key,
     required this.tracks,
     this.analysisUrl,
-    this.bpm,
+    this.bpmResult,
+    this.bpmPending = false,
+    this.audioUrl,
   });
 
   final List<TrackResult> tracks;
@@ -28,37 +32,39 @@ class MixerWorkspace extends StatefulWidget {
   /// 서버가 분리와 함께 만들어 둔 analysis.json 주소. 없을 수 있다.
   final String? analysisUrl;
 
-  /// 별도 BPM 분석 결과. 없으면 상단에 표시하지 않는다.
-  final double? bpm;
+  /// BPM 분석 결과. 상단에 숫자로 띄우고, 누르면 구간별 상세를 연다.
+  final BpmResult? bpmResult;
+
+  /// BPM 분석이 아직 돌고 있는 상태. 숫자 자리에 진행 표시를 낸다.
+  final bool bpmPending;
+
+  /// 업로드된 원본 음원 주소. BPM 상세 화면의 재생에 쓴다.
+  final String? audioUrl;
 
   @override
   State<MixerWorkspace> createState() => _MixerWorkspaceState();
 }
 
 class _MixerWorkspaceState extends State<MixerWorkspace> {
-  static const Color _primary = Color(0xFF0F766E);
-  static const Color _border = Color(0xFFE5E7EB);
-  static const Color _muted = Color(0xFF6B7280);
-  static const Color _ink = Color(0xFF111827);
-
-  /// 트랙별 색. 파형만 보고도 어느 트랙인지 구분되게 한다.
-  static const Map<String, Color> _trackColors = <String, Color>{
-    'vocals': Color(0xFF0F766E),
-    'drums': Color(0xFFC2410C),
-    'bass': Color(0xFF1D4ED8),
-    'other': Color(0xFF7E22CE),
-  };
+  static const Color _primary = AppColors.ink;
+  static const Color _border = AppColors.separator;
+  static const Color _muted = AppColors.inkSecondary;
+  static const Color _ink = AppColors.ink;
 
   /// 화면 좌우 여백 + 카드 안쪽 여백. 재생선과 파형의 시작점을 맞추는 데 쓴다.
-  static const double _outerPad = 16;
-  static const double _cardPad = 16;
-  static const double _waveInset = _outerPad + _cardPad;
+  /// 파형이 시작하는 x. 트랙마다 같은 값이어야 세로로 시각이 맞는다.
+  static const double _outerPad = AppSpace.lg;
+  static const double _waveInset = _outerPad;
 
   final MixerEngine _engine = MixerEngine();
   TrackAnalysis? _analysis;
 
   /// 지금 내려받는 중인 트랙의 주소. 같은 버튼을 두 번 누르는 것을 막는다.
   String? _savingUrl;
+
+  /// 재생 바를 끄는 동안의 위치. 엔진이 보내오는 값과 손가락이 다투지
+  /// 않도록, 끄는 중에는 이 값을 우선한다.
+  double? _scrub;
 
   @override
   void initState() {
@@ -106,6 +112,12 @@ class _MixerWorkspaceState extends State<MixerWorkspace> {
     final double fromEngine = _engine.length.inMilliseconds / 1000;
     if (fromEngine > 0) return fromEngine;
     return _analysis?.duration ?? 0;
+  }
+
+  double _progressFrom(Duration pos) {
+    final double total = _totalSeconds;
+    if (total <= 0) return 0;
+    return (pos.inMilliseconds / 1000 / total).clamp(0.0, 1.0);
   }
 
   void _seekToFraction(double fraction) {
@@ -192,7 +204,6 @@ class _MixerWorkspaceState extends State<MixerWorkspace> {
       children: <Widget>[
         _buildInfoBar(),
         Expanded(child: _buildTrackStack()),
-        if (_analysis?.hasChords ?? false) _buildChords(),
         _buildTransport(),
       ],
     );
@@ -218,21 +229,100 @@ class _MixerWorkspaceState extends State<MixerWorkspace> {
   }
 
   Widget _buildBpmCell() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 12),
-      child: Column(
-        children: <Widget>[
-          const Text('BPM', style: TextStyle(fontSize: 11, color: _muted)),
-          const SizedBox(height: 2),
-          Text(
-            widget.bpm == null ? '—' : widget.bpm!.round().toString(),
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: widget.bpm == null ? const Color(0xFFD1D5DB) : _primary,
+    final BpmResult? result = widget.bpmResult;
+
+    return InkWell(
+      onTap: result == null ? null : _openBpmDetail,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 7),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: <Widget>[
+                const Text(
+                  'BPM',
+                  style: TextStyle(fontSize: 10, color: _muted),
+                ),
+                if (result != null) ...<Widget>[
+                  const SizedBox(width: 2),
+                  const Icon(
+                    Icons.chevron_right_rounded,
+                    size: 14,
+                    color: _muted,
+                  ),
+                ],
+              ],
             ),
-          ),
-        ],
+            if (result != null)
+              Text(
+                result.avgBpm.round().toString(),
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: _primary,
+                ),
+              )
+            else if (widget.bpmPending)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 5),
+                child: SizedBox(
+                  width: 17,
+                  height: 17,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: _primary,
+                  ),
+                ),
+              )
+            else
+              const Text(
+                '—',
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.inkTertiary,
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 구간별 템포 상세. 기존 BPM 결과 화면을 그대로 시트로 띄운다.
+  /// 그 화면도 자체 재생기를 갖고 있어서, 겹쳐 나오지 않도록 믹서를 멈춘다.
+  void _openBpmDetail() {
+    _engine.pause();
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (BuildContext context) => FractionallySizedBox(
+        heightFactor: 0.9,
+        child: Column(
+          children: <Widget>[
+            Container(
+              width: 40,
+              height: 4,
+              margin: const EdgeInsets.symmetric(vertical: 10),
+              decoration: BoxDecoration(
+                color: AppColors.separator,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            Expanded(
+              child: BpmResultView(
+                result: widget.bpmResult!,
+                audioUrl: widget.audioUrl,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -263,11 +353,11 @@ class _MixerWorkspaceState extends State<MixerWorkspace> {
     }
 
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 10),
+      padding: const EdgeInsets.symmetric(vertical: 7),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          const Text('KEY', style: TextStyle(fontSize: 11, color: _muted)),
+          const Text('KEY', style: TextStyle(fontSize: 10, color: _muted)),
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: <Widget>[
@@ -283,10 +373,11 @@ class _MixerWorkspaceState extends State<MixerWorkspace> {
                 child: Text(
                   display,
                   textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontSize: 20,
+                  // 원키가 아니면 원곡과 달라져 있다는 뜻이라 눈에 띄어야 한다.
+                  style: TextStyle(
+                    fontSize: 18,
                     fontWeight: FontWeight.bold,
-                    color: _ink,
+                    color: shift == 0 ? AppColors.ink : AppColors.accent,
                   ),
                 ),
               ),
@@ -299,14 +390,13 @@ class _MixerWorkspaceState extends State<MixerWorkspace> {
               ),
             ],
           ),
-          const SizedBox(height: 2),
           GestureDetector(
             onTap: shift == 0 ? null : () => _engine.setSemitones(0),
             child: Text(
               shift == 0 ? sub : '$sub · 원키로',
               style: TextStyle(
-                fontSize: 11,
-                color: shift == 0 ? _muted : _primary,
+                fontSize: AppText.caption,
+                color: shift == 0 ? AppColors.inkSecondary : AppColors.accent,
               ),
             ),
           ),
@@ -332,17 +422,15 @@ class _MixerWorkspaceState extends State<MixerWorkspace> {
           onTapDown: (TapDownDetails d) => seekFromX(d.localPosition.dx),
           onHorizontalDragUpdate: (DragUpdateDetails d) =>
               seekFromX(d.localPosition.dx),
-          child: Stack(
+          child: ListView(
+            padding: const EdgeInsets.symmetric(horizontal: _outerPad),
+            physics: const ClampingScrollPhysics(),
             children: <Widget>[
-              ListView(
-                padding:
-                    const EdgeInsets.fromLTRB(_outerPad, 12, _outerPad, 12),
-                physics: const ClampingScrollPhysics(),
-                children: <Widget>[
-                  for (final TrackResult t in widget.tracks) _buildCard(t),
-                ],
-              ),
-              _buildPlayhead(laneWidth),
+              for (int i = 0; i < widget.tracks.length; i++)
+                _buildTrackRow(
+                  widget.tracks[i],
+                  isLast: i == widget.tracks.length - 1,
+                ),
             ],
           ),
         );
@@ -350,74 +438,96 @@ class _MixerWorkspaceState extends State<MixerWorkspace> {
     );
   }
 
-  Widget _buildPlayhead(double laneWidth) {
-    return ValueListenableBuilder<Duration>(
-      valueListenable: _engine.position,
-      builder: (BuildContext context, Duration pos, _) {
-        final double total = _totalSeconds;
-        final double fraction = total <= 0
-            ? 0
-            : (pos.inMilliseconds / 1000 / total).clamp(0.0, 1.0);
-        return Positioned(
-          left: _waveInset + laneWidth * fraction - 1,
-          top: 0,
-          bottom: 0,
-          width: 2,
-          child: IgnorePointer(child: Container(color: _ink)),
-        );
-      },
-    );
-  }
-
-  Widget _buildCard(TrackResult track) {
+  /// 트랙 한 줄.
+  ///
+  /// 카드로 감싸지 않는다. 카드마다 테두리와 안쪽 여백이 생기면 트랙끼리
+  /// 파형 시작 x 가 미묘하게 달라 보이고, 무엇보다 상자 네 개가 따로 놀아서
+  /// 세로로 훑기가 어렵다. 멀티트랙은 같은 시각이 같은 x 에 있어야 비교가
+  /// 되므로, 구분은 얇은 선으로만 한다.
+  Widget _buildTrackRow(TrackResult track, {required bool isLast}) {
     final String stem = _stemOf(track);
-    final Color color = _trackColors[stem] ?? _primary;
     final bool audible = _engine.isAudible(stem);
+    final bool soloed = _engine.isSoloed(stem);
     final List<int> peaks = _analysis?.peaks[stem] ?? const <int>[];
 
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: isLast
+            ? null
+            : const Border(bottom: BorderSide(color: AppColors.separator)),
+      ),
       child: AnimatedOpacity(
-        // 소리가 죽은 트랙은 카드째로 흐려진다. 작은 버튼 색만 바꾸는 것보다
+        // 소리가 죽은 트랙은 줄째로 흐려진다. 작은 버튼 색만 바꾸는 것보다
         // 훨씬 빨리 읽힌다.
         opacity: audible ? 1.0 : 0.4,
         duration: const Duration(milliseconds: 150),
-        child: Container(
-          padding: const EdgeInsets.all(_cardPad),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: _border),
-          ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: AppSpace.sm),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
               Row(
                 children: <Widget>[
-                  Expanded(
+                  SizedBox(
+                    width: 46,
                     child: Text(
                       track.label,
                       style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: _ink,
+                        fontSize: AppText.footnote,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.ink,
+                      ),
+                      overflow: TextOverflow.visible,
+                      softWrap: false,
+                    ),
+                  ),
+                  Expanded(
+                    child: SliderTheme(
+                      // 파형이 이 줄의 주인공이다. 막대가 굵고 진하면 바로
+                      // 아래 파형과 경쟁하므로 가늘고 흐리게 둔다.
+                      //
+                      // 다만 잡는 노브에는 강조색을 준다. 막대까지 칠하면
+                      // 화면에 강조색 막대가 다섯 개가 되어 강조가 흐려지고,
+                      // 그렇다고 노브까지 무채색이면 흰 배경에서 어디를
+                      // 잡아야 할지 안 보인다.
+                      data: SliderTheme.of(context).copyWith(
+                        trackHeight: 2,
+                        activeTrackColor: AppColors.inkSecondary,
+                        inactiveTrackColor: AppColors.separator,
+                        thumbColor: AppColors.accent,
+                        overlayShape:
+                            const RoundSliderOverlayShape(overlayRadius: 12),
+                        thumbShape: const RoundSliderThumbShape(
+                          enabledThumbRadius: 6,
+                          elevation: 0,
+                          pressedElevation: 0,
+                        ),
+                      ),
+                      child: SizedBox(
+                        height: 20,
+                        child: Slider(
+                          value: _engine.volumeOf(stem),
+                          onChanged: (double v) => _engine.setVolume(stem, v),
+                        ),
                       ),
                     ),
                   ),
+                  const SizedBox(width: AppSpace.xs),
                   _ToggleCircle(
                     label: 'M',
                     active: _engine.isMuted(stem),
-                    color: color,
+                    color: AppColors.ink,
                     onTap: () => _engine.toggleMute(stem),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 6),
                   _ToggleCircle(
                     label: 'S',
-                    active: _engine.isSoloed(stem),
-                    color: color,
+                    active: soloed,
+                    // 솔로만 강조색을 쓴다. "지금 이것만 들린다"는 예외 상태라서.
+                    color: AppColors.accent,
                     onTap: () => _engine.toggleSolo(stem),
                   ),
-                  const SizedBox(width: 4),
+                  const SizedBox(width: 2),
                   _DownloadButton(
                     busy: _savingUrl == track.url,
                     onTap:
@@ -425,60 +535,26 @@ class _MixerWorkspaceState extends State<MixerWorkspace> {
                   ),
                 ],
               ),
-              SliderTheme(
-                data: SliderTheme.of(context).copyWith(
-                  trackHeight: 4,
-                  activeTrackColor: color,
-                  inactiveTrackColor: const Color(0xFFE5E7EB),
-                  thumbColor: color,
-                  overlayShape:
-                      const RoundSliderOverlayShape(overlayRadius: 14),
-                  thumbShape:
-                      const RoundSliderThumbShape(enabledThumbRadius: 7),
-                ),
-                child: Slider(
-                  value: _engine.volumeOf(stem),
-                  onChanged: (double v) => _engine.setVolume(stem, v),
-                ),
-              ),
+              const SizedBox(height: 6),
               SizedBox(
-                height: 36,
+                height: 28,
                 child: peaks.isEmpty
                     ? const _NoWaveform()
                     : ValueListenableBuilder<Duration>(
                         valueListenable: _engine.position,
                         builder: (BuildContext context, Duration pos, _) {
-                          final double total = _totalSeconds;
                           return WaveformStrip(
                             peaks: peaks,
                             peakScale: _analysis?.peakScale ?? 255,
-                            color: color,
-                            progress: total <= 0
-                                ? 0
-                                : (pos.inMilliseconds / 1000 / total)
-                                    .clamp(0.0, 1.0),
+                            color: AppColors.wavePlayed,
+                            upcomingColor: AppColors.waveUpcoming,
+                            progress: _progressFrom(pos),
                           );
                         },
                       ),
               ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-
-  // ── 코드 ──────────────────────────────────────────────────
-
-  Widget _buildChords() {
-    return Padding(
-      padding: const EdgeInsets.only(top: 8, bottom: 4),
-      child: ValueListenableBuilder<Duration>(
-        valueListenable: _engine.position,
-        builder: (BuildContext context, Duration pos, _) => ChordTimeline(
-          chords: _analysis!.chords,
-          seconds: pos.inMilliseconds / 1000,
-          primary: _primary,
         ),
       ),
     );
@@ -491,7 +567,7 @@ class _MixerWorkspaceState extends State<MixerWorkspace> {
         Duration(milliseconds: (_totalSeconds * 1000).round());
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
+      padding: const EdgeInsets.fromLTRB(12, 6, 12, 10),
       decoration: const BoxDecoration(
         border: Border(top: BorderSide(color: _border)),
       ),
@@ -500,49 +576,93 @@ class _MixerWorkspaceState extends State<MixerWorkspace> {
         children: <Widget>[
           ValueListenableBuilder<Duration>(
             valueListenable: _engine.position,
-            builder: (BuildContext context, Duration pos, _) => Text.rich(
-              TextSpan(
-                children: <TextSpan>[
-                  TextSpan(
-                    text: _fmt(pos),
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: _ink,
+            builder: (BuildContext context, Duration pos, _) {
+              final double value = _scrub ?? _progressFrom(pos);
+              final Duration shown = _scrub == null
+                  ? pos
+                  : Duration(
+                      milliseconds: (_scrub! * _totalSeconds * 1000).round(),
+                    );
+
+              return Row(
+                children: <Widget>[
+                  SizedBox(
+                    width: 40,
+                    child: Text(
+                      _fmt(shown),
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: _ink,
+                      ),
                     ),
                   ),
-                  TextSpan(
-                    text: ' / ${_fmt(total)}',
-                    style: const TextStyle(color: _muted),
+                  Expanded(
+                    child: SliderTheme(
+                      data: SliderTheme.of(context).copyWith(
+                        trackHeight: 3,
+                        activeTrackColor: AppColors.accent,
+                        inactiveTrackColor: AppColors.fill,
+                        thumbColor: AppColors.accent,
+                        overlayShape:
+                            const RoundSliderOverlayShape(overlayRadius: 12),
+                        thumbShape:
+                            const RoundSliderThumbShape(enabledThumbRadius: 6),
+                      ),
+                      child: SizedBox(
+                        height: 24,
+                        child: Slider(
+                          value: value,
+                          // 끄는 동안에는 손가락 위치를 그대로 보여주고,
+                          // 실제 이동은 손을 뗄 때 한 번만 한다.
+                          onChangeStart: (double v) =>
+                              setState(() => _scrub = v),
+                          onChanged: (double v) => setState(() => _scrub = v),
+                          onChangeEnd: (double v) {
+                            _seekToFraction(v);
+                            setState(() => _scrub = null);
+                          },
+                        ),
+                      ),
+                    ),
+                  ),
+                  SizedBox(
+                    width: 40,
+                    child: Text(
+                      _fmt(total),
+                      textAlign: TextAlign.right,
+                      style: const TextStyle(fontSize: 11, color: _muted),
+                    ),
                   ),
                 ],
-              ),
-              style: const TextStyle(fontSize: 14),
-            ),
+              );
+            },
           ),
-          const SizedBox(height: 8),
           Row(
             children: <Widget>[
-              const SizedBox(width: 44),
+              const SizedBox(width: 40),
               Expanded(
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: <Widget>[
                     IconButton(
-                      iconSize: 30,
+                      iconSize: 26,
                       color: _ink,
+                      visualDensity: VisualDensity.compact,
                       onPressed: () =>
                           _engine.seekBy(const Duration(seconds: -10)),
                       icon: const Icon(Icons.replay_10_rounded),
                     ),
-                    const SizedBox(width: 12),
+                    const SizedBox(width: 10),
                     _PlayButton(
                       playing: _engine.isPlaying,
                       onTap: _engine.togglePlay,
                     ),
-                    const SizedBox(width: 12),
+                    const SizedBox(width: 10),
                     IconButton(
-                      iconSize: 30,
+                      iconSize: 26,
                       color: _ink,
+                      visualDensity: VisualDensity.compact,
                       onPressed: () =>
                           _engine.seekBy(const Duration(seconds: 10)),
                       icon: const Icon(Icons.forward_10_rounded),
@@ -551,10 +671,14 @@ class _MixerWorkspaceState extends State<MixerWorkspace> {
                 ),
               ),
               SizedBox(
-                width: 44,
+                width: 40,
                 child: IconButton(
+                  iconSize: 22,
+                  visualDensity: VisualDensity.compact,
                   onPressed: () => _engine.setLooping(!_engine.looping),
-                  color: _engine.looping ? _primary : const Color(0xFF9CA3AF),
+                  color: _engine.looping
+                      ? AppColors.accent
+                      : AppColors.inkTertiary,
                   icon: const Icon(Icons.repeat_rounded),
                   tooltip: _engine.looping ? '반복 켜짐' : '반복 꺼짐',
                 ),
@@ -580,18 +704,18 @@ class _StepButton extends StatelessWidget {
       onTap: onTap,
       radius: 22,
       child: Container(
-        width: 32,
-        height: 32,
+        width: 28,
+        height: 28,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           border: Border.all(
-            color: enabled ? const Color(0xFF9CA3AF) : const Color(0xFFE5E7EB),
+            color: enabled ? AppColors.inkSecondary : AppColors.separator,
           ),
         ),
         child: Icon(
           icon,
-          size: 18,
-          color: enabled ? const Color(0xFF374151) : const Color(0xFFD1D5DB),
+          size: 16,
+          color: enabled ? AppColors.ink : AppColors.inkTertiary,
         ),
       ),
     );
@@ -623,7 +747,7 @@ class _ToggleCircle extends StatelessWidget {
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           color: active ? color : Colors.transparent,
-          border: Border.all(color: active ? color : const Color(0xFFD1D5DB)),
+          border: Border.all(color: active ? color : AppColors.separator),
         ),
         alignment: Alignment.center,
         child: Text(
@@ -631,7 +755,7 @@ class _ToggleCircle extends StatelessWidget {
           style: TextStyle(
             fontSize: 13,
             fontWeight: FontWeight.bold,
-            color: active ? Colors.white : const Color(0xFF9CA3AF),
+            color: active ? AppColors.onAccent : AppColors.inkSecondary,
           ),
         ),
       ),
@@ -658,13 +782,13 @@ class _DownloadButton extends StatelessWidget {
                 padding: EdgeInsets.all(7),
                 child: CircularProgressIndicator(
                   strokeWidth: 2,
-                  color: Color(0xFF9CA3AF),
+                  color: AppColors.inkTertiary,
                 ),
               )
             : const Icon(
                 Icons.download_rounded,
                 size: 20,
-                color: Color(0xFF9CA3AF),
+                color: AppColors.inkTertiary,
               ),
       ),
     );
@@ -687,11 +811,11 @@ class _PlayButton extends StatelessWidget {
         height: 64,
         decoration: const BoxDecoration(
           shape: BoxShape.circle,
-          color: Color(0xFF0F766E),
+          color: AppColors.ink,
         ),
         child: Icon(
           playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
-          color: Colors.white,
+          color: AppColors.surface,
           size: 34,
         ),
       ),
@@ -707,7 +831,8 @@ class _NoWaveform extends StatelessWidget {
     return const Center(
       child: Text(
         '파형 정보 없음',
-        style: TextStyle(fontSize: 11, color: Color(0xFFD1D5DB)),
+        style:
+            TextStyle(fontSize: AppText.caption, color: AppColors.inkTertiary),
       ),
     );
   }
@@ -731,16 +856,19 @@ class _Message extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.center,
         children: <Widget>[
           if (spinner)
-            const CircularProgressIndicator(color: Color(0xFF0F766E))
+            const CircularProgressIndicator(color: AppColors.ink)
           else
-            Icon(icon, size: 44, color: const Color(0xFFD1D5DB)),
+            Icon(icon, size: 44, color: AppColors.inkTertiary),
           const SizedBox(height: 16),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 32),
             child: Text(
               text,
               textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 13, color: Color(0xFF6B7280)),
+              style: const TextStyle(
+                fontSize: AppText.footnote,
+                color: AppColors.inkSecondary,
+              ),
             ),
           ),
         ],

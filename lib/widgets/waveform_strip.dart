@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../theme/tokens.dart';
+
 /// 트랙 하나의 파형. 재생선을 기준으로 왼쪽은 진하게, 오른쪽은 옅게 칠한다.
 ///
 /// 서버가 주는 피크는 초당 20개라 4분 곡이면 4800개가 넘는다. 화면 폭에
@@ -11,9 +13,11 @@ class WaveformStrip extends StatefulWidget {
     required this.peaks,
     required this.progress,
     required this.color,
+    this.upcomingColor,
     this.peakScale = 255,
     this.barWidth = 2.0,
     this.barGap = 2.0,
+    this.showPlayhead = true,
   });
 
   /// 0 ~ [peakScale] 범위의 구간별 최대 진폭.
@@ -22,10 +26,18 @@ class WaveformStrip extends StatefulWidget {
   /// 0.0 ~ 1.0 재생 진행률.
   final double progress;
 
+  /// 이미 지나간 구간의 색.
   final Color color;
+
+  /// 아직 남은 구간의 색. 주지 않으면 [color] 를 옅게 깔아 쓴다.
+  final Color? upcomingColor;
+
   final int peakScale;
   final double barWidth;
   final double barGap;
+
+  /// 재생 위치 표시선. 파형 안에 그려야 카드 경계를 넘지 않는다.
+  final bool showPlayhead;
 
   @override
   State<WaveformStrip> createState() => _WaveformStripState();
@@ -78,8 +90,11 @@ class _WaveformStripState extends State<WaveformStrip> {
             bars: _bars,
             progress: widget.progress,
             color: widget.color,
+            upcomingColor:
+                widget.upcomingColor ?? widget.color.withValues(alpha: 0.28),
             barWidth: widget.barWidth,
             slot: slot,
+            showPlayhead: widget.showPlayhead,
           ),
         );
       },
@@ -92,24 +107,27 @@ class _WaveformPainter extends CustomPainter {
     required this.bars,
     required this.progress,
     required this.color,
+    required this.upcomingColor,
     required this.barWidth,
     required this.slot,
+    required this.showPlayhead,
   });
 
   final List<double> bars;
   final double progress;
   final Color color;
+  final Color upcomingColor;
   final double barWidth;
   final double slot;
+  final bool showPlayhead;
 
   @override
   void paint(Canvas canvas, Size size) {
     if (bars.isEmpty) return;
 
     final Paint played = Paint()..color = color;
-    // 지나간 부분과 남은 부분을 같은 색의 농도 차이로만 나눈다. 다른 색을
-    // 섞으면 트랙 구분색과 충돌한다.
-    final Paint upcoming = Paint()..color = color.withValues(alpha: 0.28);
+    // 지나간 부분과 남은 부분은 명도 차이로만 나눈다.
+    final Paint upcoming = Paint()..color = upcomingColor;
 
     final double mid = size.height / 2;
     final int playedUpTo = (bars.length * progress).round();
@@ -126,11 +144,26 @@ class _WaveformPainter extends CustomPainter {
         i < playedUpTo ? played : upcoming,
       );
     }
+
+    if (!showPlayhead) return;
+
+    // 트랙마다 같은 x 에 그려지므로 세로로 줄이 맞는다. 카드를 관통하는
+    // 굵은 선보다 이쪽이 덜 거슬리면서 위치는 그대로 읽힌다.
+    final double x = size.width * progress;
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(x - 1, 0, 2, size.height),
+        const Radius.circular(1),
+      ),
+      Paint()..color = AppColors.accent,
+    );
   }
 
   @override
   bool shouldRepaint(_WaveformPainter old) =>
       old.progress != progress ||
       old.color != color ||
+      old.upcomingColor != upcomingColor ||
+      old.showPlayhead != showPlayhead ||
       !identical(old.bars, bars);
 }

@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 
 import '../models/bpm_result.dart';
 import '../services/api_constants.dart';
+import '../theme/tokens.dart';
 
 class BpmResultView extends StatefulWidget {
   final BpmResult result;
@@ -29,9 +30,9 @@ class BpmResultView extends StatefulWidget {
 }
 
 class _BpmResultViewState extends State<BpmResultView> {
-  static const _primary = Color(0xFF0F766E);
-  static const _blue = Color(0xFF3B82F6);
-  static const _red = Color(0xFFEF4444);
+  static const _primary = AppColors.ink;
+  static const _blue = AppColors.accent;
+  static const _red = AppColors.danger;
 
   final _player = AudioPlayer();
   Duration _position = Duration.zero;
@@ -98,9 +99,8 @@ class _BpmResultViewState extends State<BpmResultView> {
       final url = widget.audioUrl;
       await _player.play(
         url != null
-            ? UrlSource(url.startsWith('http')
-                ? url
-                : '${ApiConstants.baseUrl}$url')
+            ? UrlSource(
+                url.startsWith('http') ? url : '${ApiConstants.baseUrl}$url')
             : BytesSource(widget.audioBytes!),
       );
       _sourceLoaded = true;
@@ -125,7 +125,8 @@ class _BpmResultViewState extends State<BpmResultView> {
           if (widget.audioFilename != null) ...[
             const SizedBox(height: 2),
             Text(widget.audioFilename!,
-                style: const TextStyle(fontSize: 12, color: Color(0xFF9CA3AF))),
+                style: const TextStyle(
+                    fontSize: 12, color: AppColors.inkTertiary)),
           ],
           const SizedBox(height: 16),
           _buildSummaryCard(result),
@@ -145,23 +146,23 @@ class _BpmResultViewState extends State<BpmResultView> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE5E7EB)),
+        border: Border.all(color: AppColors.separator),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text('전체 BPM',
-              style: TextStyle(fontSize: 12, color: Color(0xFF6B7280))),
+              style: TextStyle(fontSize: 12, color: AppColors.inkSecondary)),
           const SizedBox(height: 4),
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Text(
-                result.baseBpm.toInt().toString(),
+                result.avgBpm.toInt().toString(),
                 style: const TextStyle(
                   fontSize: 52,
                   fontWeight: FontWeight.bold,
-                  color: Color(0xFF1A1A2E),
+                  color: AppColors.ink,
                   height: 1.0,
                 ),
               ),
@@ -171,7 +172,7 @@ class _BpmResultViewState extends State<BpmResultView> {
                   'BPM',
                   style: TextStyle(
                     fontSize: 14,
-                    color: Color(0xFF6B7280),
+                    color: AppColors.inkSecondary,
                     fontWeight: FontWeight.w500,
                   ),
                 ),
@@ -182,23 +183,16 @@ class _BpmResultViewState extends State<BpmResultView> {
           Row(
             children: [
               _StatChip(
-                label: '평균',
-                value: result.avgBpm.toInt().toString(),
-                color: const Color(0xFFCCFBF1),
-                textColor: _primary,
-              ),
-              const SizedBox(width: 8),
-              _StatChip(
                 label: '최고',
                 value: result.maxBpm.toInt().toString(),
-                color: const Color(0xFFFFEDED),
+                color: AppColors.fill,
                 textColor: _red,
               ),
               const SizedBox(width: 8),
               _StatChip(
                 label: '최저',
                 value: result.minBpm.toInt().toString(),
-                color: const Color(0xFFEFF6FF),
+                color: AppColors.fill,
                 textColor: _blue,
               ),
             ],
@@ -220,7 +214,7 @@ class _BpmResultViewState extends State<BpmResultView> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE5E7EB)),
+        border: Border.all(color: AppColors.separator),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -246,7 +240,7 @@ class _BpmResultViewState extends State<BpmResultView> {
                   height: 36,
                   decoration: BoxDecoration(
                     // 재생할 음원이 없으면 눌리지 않는다는 걸 보이게 한다
-                    color: _canPlay ? _primary : const Color(0xFFD1D5DB),
+                    color: _canPlay ? _primary : AppColors.inkTertiary,
                     shape: BoxShape.circle,
                   ),
                   child: Icon(
@@ -266,7 +260,7 @@ class _BpmResultViewState extends State<BpmResultView> {
                     overlayShape:
                         const RoundSliderOverlayShape(overlayRadius: 14),
                     activeTrackColor: _primary,
-                    inactiveTrackColor: const Color(0xFFE5E7EB),
+                    inactiveTrackColor: AppColors.separator,
                     thumbColor: _primary,
                   ),
                   child: Slider(
@@ -306,7 +300,7 @@ class _BpmResultViewState extends State<BpmResultView> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE5E7EB)),
+        border: Border.all(color: AppColors.separator),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -359,8 +353,8 @@ class _BpmGraphPainter extends CustomPainter {
   final double baseBpm;
   final double playPosition;
 
-  static const _primary = Color(0xFF0F766E);
-  static const _grey = Color(0xFFE5E7EB);
+  static const _primary = AppColors.ink;
+  static const _grey = AppColors.separator;
 
   _BpmGraphPainter({
     required this.bpmData,
@@ -386,7 +380,7 @@ class _BpmGraphPainter extends CustomPainter {
     final gridPaint = Paint()
       ..color = _grey
       ..strokeWidth = 1;
-    const labelStyle = TextStyle(fontSize: 10, color: Color(0xFF9CA3AF));
+    const labelStyle = TextStyle(fontSize: 10, color: AppColors.inkTertiary);
 
     for (var i = 0; i <= 3; i++) {
       final bpmVal = minBpm + (bpmRange * i / 3);
@@ -454,7 +448,7 @@ class _BpmGraphPainter extends CustomPainter {
       canvas,
       '현재 ${curBpmPoint.bpm.toInt()}',
       Offset(curX + 6, curY - 14),
-      const TextStyle(fontSize: 10, color: Color(0xFF6B7280)),
+      const TextStyle(fontSize: 10, color: AppColors.inkSecondary),
     );
   }
 
@@ -550,8 +544,7 @@ class _DeviationRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final diff = section.deviation(baseBpm);
     final isFaster = section.isFaster(baseBpm);
-    final diffColor =
-        isFaster ? const Color(0xFFEF4444) : const Color(0xFF3B82F6);
+    final diffColor = isFaster ? AppColors.danger : AppColors.accent;
     final diffText = isFaster ? '+${diff.toInt()} BPM' : '${diff.toInt()} BPM';
     final label = isFaster ? '빨라짐' : '느려짐';
 
@@ -567,7 +560,7 @@ class _DeviationRow extends StatelessWidget {
           const SizedBox(width: 10),
           Text(
             '${section.startLabel} - ${section.endLabel}',
-            style: const TextStyle(fontSize: 13, color: Color(0xFF374151)),
+            style: const TextStyle(fontSize: 13, color: AppColors.inkBody),
           ),
           const SizedBox(width: 12),
           Text(
@@ -594,7 +587,7 @@ class _DeviationRow extends StatelessWidget {
           const Icon(
             Icons.chevron_right_rounded,
             size: 16,
-            color: Color(0xFFD1D5DB),
+            color: AppColors.inkTertiary,
           ),
         ],
       ),

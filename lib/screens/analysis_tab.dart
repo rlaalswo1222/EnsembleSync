@@ -6,8 +6,13 @@ import 'package:flutter/material.dart';
 
 import '../services/api_service.dart';
 import '../services/websocket_service.dart';
+import '../theme/tokens.dart';
 
 enum AnalysisState { idle, loading, done }
+
+/// 분석 카드가 지금 어느 단계를 돌고 있는지. 사용자에게는 한 덩어리지만
+/// 서버에서는 분리 작업과 BPM 작업이 차례로 돈다.
+enum _Phase { none, separating, bpm }
 
 class AnalysisTab extends StatefulWidget {
   final String roomId;
@@ -38,20 +43,27 @@ class AnalysisTab extends StatefulWidget {
 }
 
 class _AnalysisTabState extends State<AnalysisTab> {
-  static const _primary = Color(0xFF0F766E);
+  static const _primary = AppColors.ink;
 
   Uint8List? _audioBytes;
   String? _audioFilename;
   String? _audioFileId;
   bool _isUploadingAudio = false;
 
-  AnalysisState _bpmState = AnalysisState.idle;
-  AnalysisState _pitchState = AnalysisState.idle;
-  AnalysisState _trackState = AnalysisState.idle;
+  /// 분리와 BPM 은 사용자에게 하나의 '분석'이다. 분리가 끝나면 BPM 을
+  /// 이어서 돌리고, 그동안 카드 하나가 계속 진행 상태를 보여준다.
+  AnalysisState _state = AnalysisState.idle;
+  _Phase _phase = _Phase.none;
 
   double _trackProgress = 0.0;
   String? _trackJobId;
   Timer? _bpmTimeoutTimer;
+
+  String get _phaseLabel => switch (_phase) {
+        _Phase.separating => '트랙 분리 중',
+        _Phase.bpm => 'BPM 분석 중',
+        _Phase.none => '',
+      };
 
   @override
   void initState() {
@@ -88,9 +100,7 @@ class _AnalysisTabState extends State<AnalysisTab> {
         widget.onAudioUrl?.call(fileUrl);
 
         setState(() {
-          final isAnalyzing = _trackState == AnalysisState.loading ||
-              _bpmState == AnalysisState.loading ||
-              _pitchState == AnalysisState.loading;
+          final isAnalyzing = _state == AnalysisState.loading;
           if (_audioFilename != filename) {
             _audioBytes = null;
           }
@@ -98,9 +108,8 @@ class _AnalysisTabState extends State<AnalysisTab> {
           _audioFileId = audioFileId;
           _isUploadingAudio = false;
           if (!isAnalyzing) {
-            _bpmState = AnalysisState.idle;
-            _pitchState = AnalysisState.idle;
-            _trackState = AnalysisState.idle;
+            _state = AnalysisState.idle;
+            _phase = _Phase.none;
             _trackProgress = 0.0;
             _trackJobId = null;
           }
@@ -116,10 +125,12 @@ class _AnalysisTabState extends State<AnalysisTab> {
           if (jobType == 'bpm') {
             _bpmTimeoutTimer?.cancel();
             _bpmTimeoutTimer = null;
-            _bpmState = AnalysisState.loading;
+            _state = AnalysisState.loading;
+            _phase = _Phase.bpm;
           } else if (jobType == 'separation') {
             _audioFileId ??= payload['audio_file_id'] as String?;
-            _trackState = AnalysisState.loading;
+            _state = AnalysisState.loading;
+            _phase = _Phase.separating;
             _trackProgress = 0.0;
             _trackJobId = jobId;
           }
@@ -130,19 +141,23 @@ class _AnalysisTabState extends State<AnalysisTab> {
         final jobId = event.data['job_id'] as String?;
         if (jobId != null) widget.onBpmJobId?.call(jobId);
         if (mounted) {
-          setState(() => _bpmState = AnalysisState.done);
-          widget.onGoToResult();
+          setState(() {
+            _state = AnalysisState.done;
+            _phase = _Phase.none;
+          });
         }
       } else if (event.type == WsEventType.trackSeparated) {
         final payload = _payloadFor(event);
         if (!_belongsToCurrentRoom(payload)) return;
         if (mounted) {
           setState(() {
-            _trackState = AnalysisState.done;
-            _trackProgress = 1.0;
+            _phase = _Phase.bpm;
+            _trackProgress = 0.0;
             _trackJobId = null;
           });
+          // 분리 결과를 바로 띄우고, BPM 은 뒤에서 이어 돌린다.
           (widget.onGoToTrackResult ?? widget.onGoToResult)();
+          unawaited(_startBpm());
         }
       } else if (event.type == WsEventType.separationProgress) {
         final eventJobId = event.data['job_id'] as String?;
@@ -154,7 +169,8 @@ class _AnalysisTabState extends State<AnalysisTab> {
         final progress = (event.data['progress'] as num?)?.toDouble() ?? 0;
         if (mounted) {
           setState(() {
-            _trackState = AnalysisState.loading;
+            _state = AnalysisState.loading;
+            _phase = _Phase.separating;
             _trackJobId ??= eventJobId;
             _trackProgress = progress / 100.0;
           });
@@ -177,9 +193,8 @@ class _AnalysisTabState extends State<AnalysisTab> {
         _audioFilename = filename;
         _audioFileId = null;
         _isUploadingAudio = true;
-        _bpmState = AnalysisState.idle;
-        _pitchState = AnalysisState.idle;
-        _trackState = AnalysisState.idle;
+        _state = AnalysisState.idle;
+        _phase = _Phase.none;
         _trackProgress = 0.0;
         _trackJobId = null;
       });
@@ -245,7 +260,11 @@ class _AnalysisTabState extends State<AnalysisTab> {
   }
 
   Future<void> _startBpm() async {
-    setState(() => _bpmState = AnalysisState.loading);
+    if (!mounted) return;
+    setState(() {
+      _state = AnalysisState.loading;
+      _phase = _Phase.bpm;
+    });
     try {
       final audioFileId = await _ensureAudioUploaded('bpm');
       if (audioFileId == null) {
@@ -257,48 +276,31 @@ class _AnalysisTabState extends State<AnalysisTab> {
       );
       _bpmTimeoutTimer?.cancel();
       _bpmTimeoutTimer = Timer(const Duration(seconds: 60), () {
-        if (mounted && _bpmState == AnalysisState.loading) {
-          setState(() => _bpmState = AnalysisState.idle);
-          _showError('BPM 분석 응답이 없습니다. 다시 시도해주세요.');
+        if (mounted && _phase == _Phase.bpm) {
+          setState(() {
+            _state = AnalysisState.done;
+            _phase = _Phase.none;
+          });
+          _showError('BPM 분석 응답이 없습니다. 결과 화면의 BPM 은 비어 있습니다.');
         }
       });
     } catch (e) {
+      // 분리는 이미 끝나 결과가 떠 있다. BPM 만 비워 두고 분석은 완료로 본다.
       if (mounted) {
-        setState(() => _bpmState = AnalysisState.idle);
+        setState(() {
+          _state = AnalysisState.done;
+          _phase = _Phase.none;
+        });
         _showError('BPM 분석 실패: $e');
       }
     }
   }
 
-  Future<void> _startPitch() async {
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text(
-          '미구현 기능',
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-        ),
-        content: const Text(
-          '피치 분석 기능은 현재 개발 중입니다.',
-          style: TextStyle(fontSize: 14, color: Color(0xFF6B7280)),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text(
-              '확인',
-              style: TextStyle(color: _primary, fontWeight: FontWeight.w600),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _startTrack() async {
+  /// 분리를 띄운다. 완료되면 WS 수신부에서 BPM 을 이어 돌린다.
+  Future<void> _startAnalysis() async {
     setState(() {
-      _trackState = AnalysisState.loading;
+      _state = AnalysisState.loading;
+      _phase = _Phase.separating;
       _trackProgress = 0.0;
       _trackJobId = null;
     });
@@ -313,7 +315,7 @@ class _AnalysisTabState extends State<AnalysisTab> {
         jobType: 'separation',
       );
       final jobId = result['job_id'] as String?;
-      if (!mounted || _trackState != AnalysisState.loading) {
+      if (!mounted || _state != AnalysisState.loading) {
         if (jobId != null) {
           ApiService().cancelAnalysis(jobId).catchError((_) {});
         }
@@ -325,37 +327,23 @@ class _AnalysisTabState extends State<AnalysisTab> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          _trackState = AnalysisState.idle;
+          _state = AnalysisState.idle;
+          _phase = _Phase.none;
           _trackProgress = 0.0;
           _trackJobId = null;
         });
-        _showError('트랙 분리 요청 실패: $e');
+        _showError('분석 요청 실패: $e');
       }
     }
   }
 
-  void _cancelTrack() {
+  void _cancelAnalysis() {
+    _bpmTimeoutTimer?.cancel();
+    _bpmTimeoutTimer = null;
     final jobId = _trackJobId;
     setState(() {
-      _trackState = AnalysisState.idle;
-      _trackProgress = 0.0;
-      _trackJobId = null;
-    });
-    if (jobId != null) {
-      ApiService().cancelAnalysis(jobId).catchError((_) {});
-    }
-  }
-
-  void _clearAudio() {
-    final jobId = _trackState == AnalysisState.loading ? _trackJobId : null;
-    setState(() {
-      _audioBytes = null;
-      _audioFilename = null;
-      _audioFileId = null;
-      _isUploadingAudio = false;
-      _bpmState = AnalysisState.idle;
-      _pitchState = AnalysisState.idle;
-      _trackState = AnalysisState.idle;
+      _state = AnalysisState.idle;
+      _phase = _Phase.none;
       _trackProgress = 0.0;
       _trackJobId = null;
     });
@@ -372,235 +360,309 @@ class _AnalysisTabState extends State<AnalysisTab> {
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        children: [
-          _buildAudioUploadArea(),
-          const SizedBox(height: 12),
-          _buildAnalysisCard(
-            icon: Icons.content_cut_rounded,
-            title: '트랙 분리',
-            subtitle: '보컬/드럼/베이스/기타를 분리합니다',
-            state: _trackState,
-            onStart: _startTrack,
-            onResult: widget.onGoToTrackResult ?? widget.onGoToResult,
-            onCancel: _cancelTrack,
-            buttonLabel: '분리 시작',
-            progressValue: _trackProgress,
-            enabled: !_isUploadingAudio,
+    // 카드는 하나뿐이다. 음원을 올리는 곳과 분석 버튼을 따로 두면 화면에
+    // 상자가 두 개 생기는데, 정작 사용자가 하는 일은 하나뿐이다.
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        return SingleChildScrollView(
+          // 악보 탭과 같은 규격의 틀이다. 탭을 오갈 때 상자가 움직이면 안 된다.
+          padding: const EdgeInsets.all(12),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: constraints.maxHeight - 24),
+            // 스크롤 안에서는 높이가 무한이라 Expanded 가 못 쓰인다.
+            // IntrinsicHeight 가 높이를 확정시켜 준다.
+            child: IntrinsicHeight(child: _buildAudioCard()),
           ),
-          const SizedBox(height: 12),
-          _buildAnalysisCard(
-            icon: Icons.graphic_eq_rounded,
-            title: 'BPM 분석',
-            subtitle: '구간별 템포 이탈을 확인하세요',
-            state: _bpmState,
-            onStart: _startBpm,
-            onResult: widget.onGoToResult,
-            onCancel: () => setState(() => _bpmState = AnalysisState.idle),
-            enabled: !_isUploadingAudio && _trackState == AnalysisState.done,
-          ),
-          const SizedBox(height: 12),
-          _buildAnalysisCard(
-            icon: Icons.music_note_rounded,
-            title: '피치 분석',
-            subtitle: '보컬 음정 이탈 구간을 확인하세요',
-            state: _pitchState,
-            onStart: _startPitch,
-            onResult: widget.onGoToResult,
-            onCancel: () => setState(() => _pitchState = AnalysisState.idle),
-            enabled: !_isUploadingAudio && _trackState == AnalysisState.done,
-          ),
-        ],
+        );
+      },
+    );
+  }
+
+  static String _formatBytes(int bytes) {
+    if (bytes >= 1024 * 1024) {
+      return '${(bytes / 1024 / 1024).toStringAsFixed(1)} MB';
+    }
+    return '${(bytes / 1024).round()} KB';
+  }
+
+  Widget _buildAudioCard() {
+    final hasAudio = _audioBytes != null || _audioFilename != null;
+
+    return GestureDetector(
+      // 음원이 없을 때만 카드 전체가 파일 고르기 버튼이 된다. 음원이 들어온
+      // 뒤에는 안에 버튼이 생기므로 아무 데나 눌리면 오히려 방해가 된다.
+      onTap: hasAudio || _isUploadingAudio ? null : _pickAudio,
+      child: Padding(
+        // 화면에 요소가 이것 하나뿐이라 테두리로 가둘 이유가 없다.
+        padding: const EdgeInsets.all(AppSpace.lg),
+        child: Column(
+          children: [
+            Expanded(
+              // Center 가 폭을 끝까지 밀어줘야 안쪽이 진짜 가운데로 온다.
+              child: Center(
+                child: _state == AnalysisState.loading
+                    ? _buildAnalyzing()
+                    : (hasAudio ? _buildPickedAudio() : _buildEmptyUpload()),
+              ),
+            ),
+            _buildActionArea(hasAudio),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildAudioUploadArea() {
-    if (_audioBytes == null && _audioFilename == null) {
-      return GestureDetector(
-        onTap: _pickAudio,
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(vertical: 18),
-          decoration: BoxDecoration(
-            border: Border.all(color: const Color(0xFFD1D5DB)),
-            borderRadius: BorderRadius.circular(12),
+  /// 악보 업로드 화면과 같은 구성이다. 두 화면이 하는 일이 같은데 생김새가
+  /// 다르면 탭을 옮길 때마다 다시 읽어야 한다.
+  Widget _buildEmptyUpload() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const _UploadIcon(icon: Icons.upload_rounded),
+        const SizedBox(height: AppSpace.lg),
+        const Text(
+          '음원을 업로드하세요',
+          style: TextStyle(fontSize: 14, color: AppColors.inkSecondary),
+        ),
+        const SizedBox(height: AppSpace.lg),
+        ElevatedButton.icon(
+          onPressed: _pickAudio,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppColors.ink,
+            foregroundColor: AppColors.onAccent,
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(AppRadius.md),
+            ),
+            padding: const EdgeInsets.symmetric(
+              horizontal: 20,
+              vertical: AppSpace.md,
+            ),
           ),
-          child: const Row(
-            mainAxisAlignment: MainAxisAlignment.center,
+          icon: const Icon(Icons.add, size: 18),
+          label: const Text(
+            '음원 추가',
+            style: TextStyle(fontWeight: FontWeight.w600),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPickedAudio() {
+    final filename = _audioFilename ?? '';
+    final dot = filename.lastIndexOf('.');
+    final ext = dot > 0 ? filename.substring(dot + 1).toUpperCase() : '음원';
+
+    final meta = [
+      if (_audioBytes != null) _formatBytes(_audioBytes!.length),
+      ext,
+    ];
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const _UploadIcon(icon: Icons.audiotrack_rounded),
+        const SizedBox(height: AppSpace.lg),
+        Text(
+          // 파일명은 길다. 두 줄까지는 보여줘야 어떤 곡인지 알아본다.
+          filename,
+          textAlign: TextAlign.center,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w700,
+            color: AppColors.ink,
+            height: 1.35,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          _isUploadingAudio ? '업로드 중...' : meta.join(' · '),
+          style: const TextStyle(fontSize: 12, color: AppColors.inkSecondary),
+        ),
+        const SizedBox(height: 16),
+        TextButton(
+          onPressed: _isUploadingAudio || _state == AnalysisState.loading
+              ? null
+              : _pickAudio,
+          style: TextButton.styleFrom(
+            foregroundColor: _primary,
+            backgroundColor: Colors.white,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+              // 카드가 흰 배경이라 연한 민트 테두리는 거의 안 보인다.
+              side: const BorderSide(color: AppColors.separator),
+            ),
+          ),
+          child: const Text(
+            '다른 음원 고르기',
+            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 분석이 도는 동안의 카드 가운데. 진행률을 큰 원으로 보여준다.
+  ///
+  /// 분리는 demucs 가 진행률을 보내주므로 퍼센트가 나오지만, BPM 은 그런 게
+  /// 없어서 도는 원으로만 표시한다. 없는 숫자를 지어내지는 않는다.
+  Widget _buildAnalyzing() {
+    final hasPercent = _phase == _Phase.separating && _trackProgress > 0;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          width: 168,
+          height: 168,
+          child: Stack(
+            alignment: Alignment.center,
             children: [
-              Icon(Icons.upload_rounded, color: Color(0xFF9CA3AF), size: 20),
-              SizedBox(width: 8),
-              Text(
-                '음원 파일 업로드 (MP3, WAV)',
-                style: TextStyle(fontSize: 14, color: Color(0xFF6B7280)),
+              SizedBox.expand(
+                child: CircularProgressIndicator(
+                  value: hasPercent ? _trackProgress : null,
+                  strokeWidth: 10,
+                  strokeCap: StrokeCap.round,
+                  backgroundColor: AppColors.fill,
+                  valueColor: const AlwaysStoppedAnimation(_primary),
+                ),
               ),
+              if (hasPercent)
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.baseline,
+                  textBaseline: TextBaseline.alphabetic,
+                  children: [
+                    Text(
+                      '${(_trackProgress * 100).toInt()}',
+                      style: const TextStyle(
+                        fontSize: 46,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.ink,
+                        height: 1.0,
+                      ),
+                    ),
+                    const Padding(
+                      padding: EdgeInsets.only(left: 2),
+                      child: Text(
+                        '%',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.inkSecondary,
+                        ),
+                      ),
+                    ),
+                  ],
+                )
+              else
+                const Icon(
+                  Icons.graphic_eq_rounded,
+                  size: 40,
+                  color: AppColors.inkTertiary,
+                ),
             ],
           ),
         ),
-      );
-    }
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF0FDFA),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.audio_file_rounded, color: _primary, size: 20),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              _audioFilename ?? '',
-              style: const TextStyle(
-                fontSize: 14,
-                color: Color(0xFF1A1A2E),
-                fontWeight: FontWeight.w500,
-              ),
-              overflow: TextOverflow.ellipsis,
-            ),
+        const SizedBox(height: 20),
+        Text(
+          _phaseLabel.isEmpty ? '분석 준비 중' : _phaseLabel,
+          style: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w700,
+            color: AppColors.ink,
           ),
-          GestureDetector(
-            onTap: _clearAudio,
-            child: const Icon(Icons.close_rounded,
-                size: 18, color: Color(0xFF9CA3AF)),
-          ),
-        ],
-      ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          _audioFilename ?? '',
+          textAlign: TextAlign.center,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontSize: 12, color: AppColors.inkSecondary),
+        ),
+        const SizedBox(height: 20),
+        // 두 작업이 차례로 도는 걸 알려준다. 분리가 끝났는데 아직 기다려야
+        // 하는 이유가 화면에 없으면 멈춘 것처럼 보인다.
+        _StepRow(
+          index: 1,
+          label: '트랙 분리',
+          done: _phase == _Phase.bpm,
+          active: _phase == _Phase.separating,
+        ),
+        const SizedBox(height: 8),
+        _StepRow(
+          index: 2,
+          label: 'BPM 분석',
+          done: false,
+          active: _phase == _Phase.bpm,
+        ),
+      ],
     );
   }
 
-  Widget _buildAnalysisCard({
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required AnalysisState state,
-    required VoidCallback onStart,
-    required VoidCallback onResult,
-    VoidCallback? onCancel,
-    String buttonLabel = '분석 시작',
-    double progressValue = 0.0,
-    bool enabled = true,
-  }) {
-    final hasAudio = _audioFileId != null || _audioBytes != null;
+  /// 카드 아래쪽 버튼 자리. 음원이 없으면 아무것도 두지 않는다.
+  Widget _buildActionArea(bool hasAudio) {
+    if (!hasAudio) return const SizedBox(height: 24);
 
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE5E7EB)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+    if (_state == AnalysisState.loading) {
+      return _ActionButton(
+        label: '취소',
+        color: AppColors.inkTertiary,
+        onTap: _cancelAnalysis,
+      );
+    }
+
+    if (_state == AnalysisState.done) {
+      return Column(
         children: [
-          Row(
+          // 누를 수 없는 상태 표시다. 채운 사각형으로 두면 버튼으로 오해한다.
+          const Row(
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: const BoxDecoration(
-                  color: Color(0xFFF0FDFA),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(icon, color: _primary, size: 20),
+              Icon(
+                Icons.check_circle_rounded,
+                size: 16,
+                color: AppColors.inkSecondary,
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: const TextStyle(
-                          fontSize: 15, fontWeight: FontWeight.w700),
-                    ),
-                    Text(
-                      subtitle,
-                      style: const TextStyle(
-                          fontSize: 12, color: Color(0xFF6B7280)),
-                    ),
-                  ],
+              SizedBox(width: 6),
+              Text(
+                '분석 완료',
+                style: TextStyle(
+                  fontSize: AppText.footnote,
+                  fontWeight: FontWeight.w500,
+                  color: AppColors.inkSecondary,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 12),
-          if (state == AnalysisState.idle)
-            if (!enabled)
-              const _ActionButton(
-                label: '트랙 분리 후 사용 가능',
-                color: Color(0xFFD1D5DB),
-                onTap: null,
-              )
-            else
-              _ActionButton(
-                label: buttonLabel,
-                color: hasAudio ? _primary : const Color(0xFFD1D5DB),
-                onTap: hasAudio ? onStart : null,
-              ),
-          if (state == AnalysisState.loading) ...[
-            Stack(
-              alignment: Alignment.center,
-              children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(10),
-                  child: LinearProgressIndicator(
-                    value: progressValue > 0 ? progressValue : null,
-                    backgroundColor: const Color(0xFFE5E7EB),
-                    valueColor: const AlwaysStoppedAnimation(_primary),
-                    minHeight: 44,
-                  ),
-                ),
-                Text(
-                  progressValue > 0
-                      ? '${(progressValue * 100).toInt()}%'
-                      : '분석 준비 중...',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            _ActionButton(
-              label: '취소',
-              color: const Color(0xFFD1D5DB),
-              onTap: onCancel,
-            ),
-          ],
-          if (state == AnalysisState.done) ...[
-            Container(
-              width: double.infinity,
-              height: 44,
-              decoration: BoxDecoration(
-                color: const Color(0xFF1A1A2E),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Center(
-                child: Text(
-                  '분석 완료 ✓',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 14,
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            _ActionButton(label: '결과 보기', color: _primary, onTap: onResult),
-          ],
+          const SizedBox(height: AppSpace.md),
+          _ActionButton(
+            label: '결과 보기',
+            color: _primary,
+            onTap: widget.onGoToTrackResult ?? widget.onGoToResult,
+          ),
         ],
-      ),
+      );
+    }
+
+    return Column(
+      children: [
+        const Text(
+          '트랙 분리 · 파형 · 키 · BPM',
+          style: TextStyle(fontSize: 11, color: AppColors.inkTertiary),
+        ),
+        const SizedBox(height: 8),
+        _ActionButton(
+          label: _isUploadingAudio ? '음원 업로드 중...' : '분석 시작',
+          color: _isUploadingAudio ? AppColors.inkTertiary : _primary,
+          onTap: _isUploadingAudio ? null : _startAnalysis,
+        ),
+      ],
     );
   }
 }
@@ -618,7 +680,8 @@ class _ActionButton extends StatelessWidget {
       onTap: onTap,
       child: Container(
         width: double.infinity,
-        height: 44,
+        // 카드가 하나로 합쳐지면서 이 버튼이 화면의 주 동작이 됐다.
+        height: 48,
         decoration: BoxDecoration(
           color: color,
           borderRadius: BorderRadius.circular(10),
@@ -634,6 +697,93 @@ class _ActionButton extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// 악보 탭의 빈 화면과 같은 규격. 크기와 색을 여기서만 바꾸면 둘 다 따라온다.
+class _UploadIcon extends StatelessWidget {
+  const _UploadIcon({required this.icon});
+
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 64,
+      height: 64,
+      decoration: const BoxDecoration(
+        color: AppColors.fill,
+        shape: BoxShape.circle,
+      ),
+      child: Icon(icon, size: 32, color: AppColors.inkTertiary),
+    );
+  }
+}
+
+/// 분석 단계 한 줄. 끝난 단계는 체크, 도는 단계는 진한 글씨로 구분한다.
+class _StepRow extends StatelessWidget {
+  const _StepRow({
+    required this.index,
+    required this.label,
+    required this.done,
+    required this.active,
+  });
+
+  final int index;
+  final String label;
+  final bool done;
+  final bool active;
+
+  static const _primary = AppColors.ink;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = done || active ? _primary : AppColors.inkTertiary;
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 20,
+          height: 20,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: done ? _primary : Colors.transparent,
+            border: Border.all(
+              color: done || active ? _primary : AppColors.inkTertiary,
+              width: 1.5,
+            ),
+          ),
+          alignment: Alignment.center,
+          child: done
+              ? const Icon(Icons.check_rounded, size: 13, color: Colors.white)
+              : Text(
+                  '$index',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: color,
+                  ),
+                ),
+        ),
+        const SizedBox(width: 8),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+            color: color,
+          ),
+        ),
+        if (done) ...[
+          const SizedBox(width: 6),
+          const Text(
+            '완료',
+            style: TextStyle(fontSize: 11, color: AppColors.inkTertiary),
+          ),
+        ],
+      ],
     );
   }
 }
