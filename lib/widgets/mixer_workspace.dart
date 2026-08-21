@@ -11,6 +11,7 @@ import '../services/api_service.dart';
 import '../services/mixer_engine.dart';
 import '../services/platform_download.dart';
 import 'bpm_result_view.dart';
+import 'chord_timeline.dart';
 import 'waveform_strip.dart';
 
 /// 분리된 트랙을 한 화면에서 함께 다루는 작업 화면.
@@ -52,9 +53,9 @@ class _MixerWorkspaceState extends State<MixerWorkspace> {
   static const Color _ink = AppColors.ink;
 
   /// 화면 좌우 여백 + 카드 안쪽 여백. 재생선과 파형의 시작점을 맞추는 데 쓴다.
-  /// 파형이 시작하는 x. 트랙마다 같은 값이어야 세로로 시각이 맞는다.
+  /// 화면 좌우 여백. 파형이 시작하는 x 이기도 하다. 트랙마다 같은 값이어야
+  /// 세로로 시각이 맞는다.
   static const double _outerPad = AppSpace.lg;
-  static const double _waveInset = _outerPad;
 
   final MixerEngine _engine = MixerEngine();
   TrackAnalysis? _analysis;
@@ -204,6 +205,7 @@ class _MixerWorkspaceState extends State<MixerWorkspace> {
       children: <Widget>[
         _buildInfoBar(),
         Expanded(child: _buildTrackStack()),
+        if (_analysis?.hasChords ?? false) _buildChords(),
         _buildTransport(),
       ],
     );
@@ -407,34 +409,22 @@ class _MixerWorkspaceState extends State<MixerWorkspace> {
 
   // ── 트랙 스택 ──────────────────────────────────────────────
 
+  /// 트랙 목록.
+  ///
+  /// 파형을 눌러 재생 위치를 옮기는 기능은 뺐다. 볼륨 슬라이더 바로 아래에
+  /// 파형이 있어서, 슬라이더를 끌 때마다 부모의 가로 드래그와 슬라이더의
+  /// 드래그가 서로 뺏는다. 이동은 아래 재생 바로 한다.
   Widget _buildTrackStack() {
-    return LayoutBuilder(
-      builder: (BuildContext context, BoxConstraints constraints) {
-        final double laneWidth = constraints.maxWidth - _waveInset * 2;
-
-        void seekFromX(double dx) {
-          if (laneWidth <= 0) return;
-          _seekToFraction((dx - _waveInset) / laneWidth);
-        }
-
-        return GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTapDown: (TapDownDetails d) => seekFromX(d.localPosition.dx),
-          onHorizontalDragUpdate: (DragUpdateDetails d) =>
-              seekFromX(d.localPosition.dx),
-          child: ListView(
-            padding: const EdgeInsets.symmetric(horizontal: _outerPad),
-            physics: const ClampingScrollPhysics(),
-            children: <Widget>[
-              for (int i = 0; i < widget.tracks.length; i++)
-                _buildTrackRow(
-                  widget.tracks[i],
-                  isLast: i == widget.tracks.length - 1,
-                ),
-            ],
+    return ListView(
+      padding: const EdgeInsets.symmetric(horizontal: _outerPad),
+      physics: const ClampingScrollPhysics(),
+      children: <Widget>[
+        for (int i = 0; i < widget.tracks.length; i++)
+          _buildTrackRow(
+            widget.tracks[i],
+            isLast: i == widget.tracks.length - 1,
           ),
-        );
-      },
+      ],
     );
   }
 
@@ -555,6 +545,24 @@ class _MixerWorkspaceState extends State<MixerWorkspace> {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  // ── 코드 ──────────────────────────────────────────────
+
+  Widget _buildChords() {
+    return Container(
+      padding: const EdgeInsets.only(top: AppSpace.sm, bottom: AppSpace.xs),
+      decoration: const BoxDecoration(
+        border: Border(top: BorderSide(color: _border)),
+      ),
+      child: ValueListenableBuilder<Duration>(
+        valueListenable: _engine.position,
+        builder: (BuildContext context, Duration pos, _) => ChordTimeline(
+          chords: _analysis!.chords,
+          seconds: pos.inMilliseconds / 1000,
         ),
       ),
     );
