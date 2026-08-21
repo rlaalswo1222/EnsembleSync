@@ -16,6 +16,11 @@ enum WsEventType {
   bpmAnalyzed,
   trackSeparated,
   separationProgress,
+
+  /// 분리 작업이 지금 어느 단계인지 알리는 메시지. 진행률만으로는 몇 분씩
+  /// 걸리는 동안 무엇을 하고 있는지 알 수 없다.
+  separationStage,
+
   unknown,
 }
 
@@ -96,6 +101,8 @@ class WebSocketService {
         return WsEventType.bpmAnalyzed;
       case 'track_separated':
         return WsEventType.trackSeparated;
+      case 'separation_stage':
+        return WsEventType.separationStage;
       case 'separation_progress':
         return WsEventType.separationProgress;
       default:

@@ -59,6 +59,13 @@ class _AnalysisTabState extends State<AnalysisTab> {
   String? _trackJobId;
   Timer? _bpmTimeoutTimer;
 
+  /// 서버가 보내오는 단계 메시지. 분리는 몇 분씩 걸리는데 "분리 중" 한 줄만
+  /// 떠 있으면 멈춘 건지 도는 건지 알 수 없다. 지나온 단계를 쌓아 보여준다.
+  final List<String> _log = [];
+
+  /// 진행률만 바뀌는 메시지가 줄줄이 쌓이지 않도록 마지막 단계를 기억한다.
+  String? _lastStage;
+
   String get _phaseLabel => switch (_phase) {
         _Phase.separating => '트랙 분리 중',
         _Phase.bpm => 'BPM 분석 중',
@@ -136,6 +143,12 @@ class _AnalysisTabState extends State<AnalysisTab> {
           }
         });
       } else if (event.type == WsEventType.bpmAnalyzed) {
+        if (mounted) {
+          setState(() {
+            _log.add('BPM 분석 완료');
+            _lastStage = 'bpm_done';
+          });
+        }
         _bpmTimeoutTimer?.cancel();
         _bpmTimeoutTimer = null;
         final jobId = event.data['job_id'] as String?;
@@ -159,6 +172,22 @@ class _AnalysisTabState extends State<AnalysisTab> {
           (widget.onGoToTrackResult ?? widget.onGoToResult)();
           unawaited(_startBpm());
         }
+      } else if (event.type == WsEventType.separationStage) {
+        final payload = _payloadFor(event);
+        if (!_belongsToCurrentRoom(payload)) return;
+        final message = payload['message'] as String?;
+        final stage = payload['stage'] as String?;
+        if (message == null || !mounted) return;
+        setState(() {
+          // 같은 단계가 이어지면(분리 진행률처럼) 줄을 바꾸지 않고 덮어쓴다.
+          if (stage != null && stage == _lastStage && _log.isNotEmpty) {
+            _log[_log.length - 1] = message;
+          } else {
+            _log.add(message);
+            _lastStage = stage;
+          }
+          if (_log.length > 40) _log.removeAt(0);
+        });
       } else if (event.type == WsEventType.separationProgress) {
         final eventJobId = event.data['job_id'] as String?;
         if (_trackJobId != null &&
@@ -303,6 +332,9 @@ class _AnalysisTabState extends State<AnalysisTab> {
       _phase = _Phase.separating;
       _trackProgress = 0.0;
       _trackJobId = null;
+      _log.clear();
+      _lastStage = null;
+      _log.add('분석 요청을 보내는 중');
     });
     try {
       final audioFileId = await _ensureAudioUploaded('separation');
@@ -585,23 +617,71 @@ class _AnalysisTabState extends State<AnalysisTab> {
           overflow: TextOverflow.ellipsis,
           style: const TextStyle(fontSize: 12, color: AppColors.inkSecondary),
         ),
-        const SizedBox(height: 20),
-        // 두 작업이 차례로 도는 걸 알려준다. 분리가 끝났는데 아직 기다려야
-        // 하는 이유가 화면에 없으면 멈춘 것처럼 보인다.
-        _StepRow(
-          index: 1,
-          label: '트랙 분리',
-          done: _phase == _Phase.bpm,
-          active: _phase == _Phase.separating,
-        ),
-        const SizedBox(height: 8),
-        _StepRow(
-          index: 2,
-          label: 'BPM 분석',
-          done: false,
-          active: _phase == _Phase.bpm,
-        ),
+        const SizedBox(height: AppSpace.lg),
+        _buildLog(),
       ],
+    );
+  }
+
+  /// 지나온 단계를 쌓아 보여준다.
+  ///
+  /// 분리는 몇 분씩 걸린다. 그동안 화면에 원 하나만 돌면 멈춘 것인지 도는
+  /// 것인지 알 수 없다. 서버가 단계마다 보내오는 글을 그대로 띄운다.
+  Widget _buildLog() {
+    if (_log.isEmpty) return const SizedBox.shrink();
+
+    // 마지막 줄이 지금 하는 일이다. 그 위로는 지나온 것이라 흐리게 둔다.
+    final int last = _log.length - 1;
+
+    return Container(
+      constraints: const BoxConstraints(maxHeight: 132),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpace.md,
+        vertical: AppSpace.sm,
+      ),
+      decoration: BoxDecoration(
+        color: AppColors.fill,
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+      ),
+      child: SingleChildScrollView(
+        reverse: true,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (int i = 0; i < _log.length; i++)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 1),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      i == last ? '▸ ' : '· ',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color:
+                            i == last ? AppColors.ink : AppColors.inkTertiary,
+                      ),
+                    ),
+                    Expanded(
+                      child: Text(
+                        _log[i],
+                        style: TextStyle(
+                          fontSize: 11,
+                          height: 1.5,
+                          fontWeight:
+                              i == last ? FontWeight.w600 : FontWeight.w400,
+                          color:
+                              i == last ? AppColors.ink : AppColors.inkTertiary,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -717,73 +797,6 @@ class _UploadIcon extends StatelessWidget {
         shape: BoxShape.circle,
       ),
       child: Icon(icon, size: 32, color: AppColors.inkTertiary),
-    );
-  }
-}
-
-/// 분석 단계 한 줄. 끝난 단계는 체크, 도는 단계는 진한 글씨로 구분한다.
-class _StepRow extends StatelessWidget {
-  const _StepRow({
-    required this.index,
-    required this.label,
-    required this.done,
-    required this.active,
-  });
-
-  final int index;
-  final String label;
-  final bool done;
-  final bool active;
-
-  static const _primary = AppColors.ink;
-
-  @override
-  Widget build(BuildContext context) {
-    final color = done || active ? _primary : AppColors.inkTertiary;
-
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 20,
-          height: 20,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: done ? _primary : Colors.transparent,
-            border: Border.all(
-              color: done || active ? _primary : AppColors.inkTertiary,
-              width: 1.5,
-            ),
-          ),
-          alignment: Alignment.center,
-          child: done
-              ? const Icon(Icons.check_rounded, size: 13, color: Colors.white)
-              : Text(
-                  '$index',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                    color: color,
-                  ),
-                ),
-        ),
-        const SizedBox(width: 8),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: active ? FontWeight.w700 : FontWeight.w500,
-            color: color,
-          ),
-        ),
-        if (done) ...[
-          const SizedBox(width: 6),
-          const Text(
-            '완료',
-            style: TextStyle(fontSize: 11, color: AppColors.inkTertiary),
-          ),
-        ],
-      ],
     );
   }
 }

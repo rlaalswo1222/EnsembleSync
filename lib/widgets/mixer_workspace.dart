@@ -11,7 +11,6 @@ import '../services/api_service.dart';
 import '../services/mixer_engine.dart';
 import '../services/platform_download.dart';
 import 'bpm_result_view.dart';
-import 'chord_timeline.dart';
 import 'waveform_strip.dart';
 
 /// 분리된 트랙을 한 화면에서 함께 다루는 작업 화면.
@@ -57,8 +56,15 @@ class _MixerWorkspaceState extends State<MixerWorkspace> {
   /// 세로로 시각이 맞는다.
   static const double _outerPad = AppSpace.lg;
 
+  /// 트랜스포트 양쪽 칸의 폭. 좌우가 같아야 재생 버튼이 가운데에 온다.
+  static const double _sideSlot = 58;
+
   final MixerEngine _engine = MixerEngine();
   TrackAnalysis? _analysis;
+
+  /// 무음을 뺀 코드 목록. 재생 위치는 초당 30번 바뀌는데, 그때마다 전체를
+  /// 걸러내면 낭비다. 분석을 받을 때 한 번만 추린다.
+  List<ChordSegment> _chords = const <ChordSegment>[];
 
   /// 지금 내려받는 중인 트랙의 주소. 같은 버튼을 두 번 누르는 것을 막는다.
   String? _savingUrl;
@@ -103,7 +109,15 @@ class _MixerWorkspaceState extends State<MixerWorkspace> {
       final http.Response res =
           await http.get(Uri.parse(url)).timeout(const Duration(seconds: 10));
       if (res.statusCode != 200 || !mounted) return;
-      setState(() => _analysis = TrackAnalysis.tryParse(res.body));
+      final TrackAnalysis? parsed = TrackAnalysis.tryParse(res.body);
+      setState(() {
+        _analysis = parsed;
+        _chords = parsed == null
+            ? const <ChordSegment>[]
+            : parsed.chords
+                .where((ChordSegment c) => !c.isSilence)
+                .toList(growable: false);
+      });
     } catch (_) {
       // 파형과 코드가 없어도 재생은 된다. 조용히 넘어간다.
     }
@@ -115,11 +129,19 @@ class _MixerWorkspaceState extends State<MixerWorkspace> {
     return _analysis?.duration ?? 0;
   }
 
-  double _progressFrom(Duration pos) {
+  /// 화면에 보여줄 재생 위치.
+  ///
+  /// 재생 바를 끄는 동안에는 손가락 위치를 쓴다. 소리는 손을 뗄 때 한 번만
+  /// 옮기지만(끄는 내내 seek 하면 뚝뚝 끊긴다), 눈에 보이는 것은 손을
+  /// 따라와야 한다. 파형의 재생선과 코드 표시가 이 값을 함께 쓴다.
+  double _shownProgress(Duration pos) {
+    if (_scrub != null) return _scrub!;
     final double total = _totalSeconds;
     if (total <= 0) return 0;
     return (pos.inMilliseconds / 1000 / total).clamp(0.0, 1.0);
   }
+
+  double _shownSeconds(Duration pos) => _shownProgress(pos) * _totalSeconds;
 
   void _seekToFraction(double fraction) {
     final double total = _totalSeconds;
@@ -205,7 +227,6 @@ class _MixerWorkspaceState extends State<MixerWorkspace> {
       children: <Widget>[
         _buildInfoBar(),
         Expanded(child: _buildTrackStack()),
-        if (_analysis?.hasChords ?? false) _buildChords(),
         _buildTransport(),
       ],
     );
@@ -538,7 +559,7 @@ class _MixerWorkspaceState extends State<MixerWorkspace> {
                             peakScale: _analysis?.peakScale ?? 255,
                             color: AppColors.wavePlayed,
                             upcomingColor: AppColors.waveUpcoming,
-                            progress: _progressFrom(pos),
+                            progress: _shownProgress(pos),
                           );
                         },
                       ),
@@ -550,22 +571,66 @@ class _MixerWorkspaceState extends State<MixerWorkspace> {
     );
   }
 
-  // ── 코드 ──────────────────────────────────────────────
+  /// 트랜스포트 왼쪽의 코드 칸.
+  ///
+  /// 반복 버튼이 오른쪽에 있는데 왼쪽은 비어 있었다. 코드를 위에 줄로 따로
+  /// 두면 화면이 한 줄 더 눌린다. 남는 자리에 넣는다.
+  ///
+  /// 지금 코드보다 다음 코드가 더 쓸모 있다. 연주자는 지금 치고 있는 것을
+  /// 이미 알기 때문이다. 그래서 둘 다 보여주되 다음 것을 아래에 붙인다.
+  Widget _buildChordSlot() {
+    if (_chords.isEmpty) return const SizedBox.shrink();
 
-  Widget _buildChords() {
-    return Container(
-      padding: const EdgeInsets.only(top: AppSpace.sm, bottom: AppSpace.xs),
-      decoration: const BoxDecoration(
-        border: Border(top: BorderSide(color: _border)),
-      ),
-      child: ValueListenableBuilder<Duration>(
-        valueListenable: _engine.position,
-        builder: (BuildContext context, Duration pos, _) => ChordTimeline(
-          chords: _analysis!.chords,
-          seconds: pos.inMilliseconds / 1000,
-        ),
-      ),
+    return ValueListenableBuilder<Duration>(
+      valueListenable: _engine.position,
+      builder: (BuildContext context, Duration pos, _) {
+        final int index = _chordIndexAt(_shownSeconds(pos));
+        final String current = _chords[index].label;
+        final String? next =
+            index + 1 < _chords.length ? _chords[index + 1].label : null;
+
+        // 반대편 반복 버튼이 칸 가운데 있으니 이쪽도 가운데로 둔다.
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Text(
+              current,
+              maxLines: 1,
+              overflow: TextOverflow.visible,
+              softWrap: false,
+              style: const TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+                color: AppColors.ink,
+                height: 1.1,
+              ),
+            ),
+            if (next != null)
+              Text(
+                '→ $next',
+                maxLines: 1,
+                overflow: TextOverflow.visible,
+                softWrap: false,
+                style: const TextStyle(
+                  fontSize: AppText.caption,
+                  color: AppColors.inkTertiary,
+                ),
+              ),
+          ],
+        );
+      },
     );
+  }
+
+  /// 지금 울리는 코드의 인덱스. 무음 구간에 걸려 있으면 마지막으로 지난
+  /// 코드를 쓴다. 그래야 쉬는 동안 표시가 앞으로 튀지 않는다.
+  int _chordIndexAt(double seconds) {
+    int last = 0;
+    for (int i = 0; i < _chords.length; i++) {
+      if (seconds >= _chords[i].time && seconds < _chords[i].end) return i;
+      if (_chords[i].time <= seconds) last = i;
+    }
+    return last;
   }
 
   // ── 하단 트랜스포트 ─────────────────────────────────────────
@@ -585,12 +650,10 @@ class _MixerWorkspaceState extends State<MixerWorkspace> {
           ValueListenableBuilder<Duration>(
             valueListenable: _engine.position,
             builder: (BuildContext context, Duration pos, _) {
-              final double value = _scrub ?? _progressFrom(pos);
-              final Duration shown = _scrub == null
-                  ? pos
-                  : Duration(
-                      milliseconds: (_scrub! * _totalSeconds * 1000).round(),
-                    );
+              final double value = _shownProgress(pos);
+              final Duration shown = Duration(
+                milliseconds: (_shownSeconds(pos) * 1000).round(),
+              );
 
               return Row(
                 children: <Widget>[
@@ -648,7 +711,7 @@ class _MixerWorkspaceState extends State<MixerWorkspace> {
           ),
           Row(
             children: <Widget>[
-              const SizedBox(width: 40),
+              SizedBox(width: _sideSlot, child: _buildChordSlot()),
               Expanded(
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -679,7 +742,7 @@ class _MixerWorkspaceState extends State<MixerWorkspace> {
                 ),
               ),
               SizedBox(
-                width: 40,
+                width: _sideSlot,
                 child: IconButton(
                   iconSize: 22,
                   visualDensity: VisualDensity.compact,
