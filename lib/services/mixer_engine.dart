@@ -25,6 +25,11 @@ class MixerEngine extends ChangeNotifier {
 
   Timer? _ticker;
 
+  /// 이미 정리된 엔진인지. load() 가 비동기라, 트랙을 받는 도중에 화면이
+  /// 사라지면 await 이 끝난 뒤에도 코드가 이어서 돈다. 그때 알림을 보내면
+  /// "used after being disposed" 로 터진다.
+  bool _disposed = false;
+
   List<String> _order = const <String>[];
   String? _soloed;
   Duration _length = Duration.zero;
@@ -52,6 +57,11 @@ class MixerEngine extends ChangeNotifier {
   String get loadingLabel => _loadingLabel;
   String? get soloed => _soloed;
 
+  void _notify() {
+    if (_disposed) return;
+    notifyListeners();
+  }
+
   double volumeOf(String id) => _volumes[id] ?? 1.0;
   bool isMuted(String id) => _muted.contains(id);
   bool isSoloed(String id) => _soloed == id;
@@ -62,19 +72,20 @@ class MixerEngine extends ChangeNotifier {
 
   /// [urls] 는 {트랙 id: 오디오 주소}. 순서가 곧 화면에 쌓이는 순서다.
   Future<void> load(Map<String, String> urls) async {
-    if (_isLoading) return;
+    if (_isLoading || _disposed) return;
     _isLoading = true;
     _isReady = false;
     _error = null;
     _order = urls.keys.toList();
-    notifyListeners();
+    _notify();
 
     try {
       if (!_soloud.isInitialized) {
         _loadingLabel = '오디오 엔진 준비 중';
-        notifyListeners();
+        _notify();
         await _soloud.init();
       }
+      if (_disposed) return;
 
       // 웹에서는 트랙별 필터가 막혀 있어 전역 필터만 쓸 수 있다. 키 조절은
       // 어차피 곡 전체에 걸리는 것이라 전역으로 충분하다.
@@ -89,8 +100,14 @@ class MixerEngine extends ChangeNotifier {
 
       for (final MapEntry<String, String> e in urls.entries) {
         _loadingLabel = '${e.key} 불러오는 중';
-        notifyListeners();
-        _sources[e.key] = await _soloud.loadUrl(e.value);
+        _notify();
+        final AudioSource source = await _soloud.loadUrl(e.value);
+        if (_disposed) {
+          // 기다리는 사이에 화면이 사라졌다. 방금 받은 것도 되돌려 놓는다.
+          unawaited(_soloud.disposeSource(source));
+          return;
+        }
+        _sources[e.key] = source;
         _volumes[e.key] = 1.0;
       }
 
@@ -103,7 +120,7 @@ class MixerEngine extends ChangeNotifier {
       _error = '$e';
     } finally {
       _isLoading = false;
-      notifyListeners();
+      if (!_disposed) _notify();
     }
   }
 
@@ -112,7 +129,7 @@ class MixerEngine extends ChangeNotifier {
   /// 전부 멈춘 상태로 띄운 뒤 한꺼번에 재생을 푼다. 하나씩 play() 하면
   /// 호출 간격만큼 그대로 어긋난 채 시작한다.
   void play() {
-    if (!_isReady) return;
+    if (!_isReady || _disposed) return;
     if (_handles.isEmpty) {
       for (final MapEntry<String, AudioSource> e in _sources.entries) {
         _handles[e.key] = _soloud.play(
@@ -127,22 +144,38 @@ class MixerEngine extends ChangeNotifier {
     }
     _isPlaying = true;
     _startTicker();
-    notifyListeners();
+    _notify();
   }
 
   void pause() {
+    if (_disposed) return;
     for (final SoundHandle h in _handles.values) {
       _soloud.setPause(h, true);
     }
     _isPlaying = false;
     _ticker?.cancel();
-    notifyListeners();
+    _notify();
   }
 
+  /// 곡 맨 끝으로는 보내지 않고 이만큼 앞에서 멈춘다.
+  ///
+  /// 마지막 샘플 위치로 seek 하면 SoLoud 가 범위를 벗어난 값으로 보고
+  /// InvalidParameter 예외를 던진다. 재생 바를 끝까지 끌면 바로 걸린다.
+  static const Duration _endGuard = Duration(milliseconds: 120);
+
   void seek(Duration to) {
-    final Duration clamped = to < Duration.zero
-        ? Duration.zero
-        : (_length > Duration.zero && to > _length ? _length : to);
+    if (_disposed) return;
+
+    Duration clamped = to < Duration.zero ? Duration.zero : to;
+    if (_length > Duration.zero) {
+      Duration limit = _length - _endGuard;
+      if (limit < Duration.zero) {
+        limit = Duration.zero;
+      }
+      if (clamped > limit) {
+        clamped = limit;
+      }
+    }
 
     if (_handles.isEmpty) {
       // 아직 재생 전이라면 눈금만 옮겨 두고, 재생 시작 때 맞춰 넣는다.
@@ -150,7 +183,13 @@ class MixerEngine extends ChangeNotifier {
       return;
     }
     for (final SoundHandle h in _handles.values) {
-      _soloud.seek(h, clamped);
+      try {
+        _soloud.seek(h, clamped);
+      } catch (e) {
+        // 곡이 끝나 보이스가 반납된 뒤라면 이 핸들만 실패한다.
+        // 나머지 트랙까지 멈출 이유는 없다.
+        debugPrint('seek 실패: $e');
+      }
     }
     position.value = clamped;
   }
@@ -160,25 +199,25 @@ class MixerEngine extends ChangeNotifier {
   void setVolume(String id, double value) {
     _volumes[id] = value;
     _applyVolume(id);
-    notifyListeners();
+    _notify();
   }
 
   void toggleMute(String id) {
     if (!_muted.remove(id)) _muted.add(id);
     _applyAllVolumes();
-    notifyListeners();
+    _notify();
   }
 
   /// 솔로는 한 번에 하나만. 같은 트랙을 다시 누르면 해제된다.
   void toggleSolo(String id) {
     _soloed = _soloed == id ? null : id;
     _applyAllVolumes();
-    notifyListeners();
+    _notify();
   }
 
   void setLooping(bool value) {
     _looping = value;
-    notifyListeners();
+    _notify();
   }
 
   void setSemitones(int value) {
@@ -191,7 +230,7 @@ class MixerEngine extends ChangeNotifier {
         _pitchAvailable = false;
       }
     }
-    notifyListeners();
+    _notify();
   }
 
   double _effectiveVolume(String id) =>
@@ -211,7 +250,7 @@ class MixerEngine extends ChangeNotifier {
   void _startTicker() {
     _ticker?.cancel();
     _ticker = Timer.periodic(const Duration(milliseconds: 33), (_) {
-      if (_handles.isEmpty) return;
+      if (_disposed || _handles.isEmpty) return;
 
       // 곡이 끝나면 SoLoud 가 보이스를 반납한다. 핸들이 죽은 걸로 끝을 안다.
       final SoundHandle first = _handles.values.first;
@@ -224,16 +263,18 @@ class MixerEngine extends ChangeNotifier {
   }
 
   void _onFinished() {
+    if (_disposed) return;
     _ticker?.cancel();
     _handles.clear();
     position.value = Duration.zero;
     _isPlaying = false;
-    notifyListeners();
+    _notify();
     if (_looping) play();
   }
 
   @override
   void dispose() {
+    _disposed = true;
     _ticker?.cancel();
     for (final SoundHandle h in _handles.values) {
       _soloud.stop(h);
