@@ -1,14 +1,9 @@
 import 'package:flutter/material.dart';
+import '../theme/tokens.dart';
 
 class RoomHeader extends StatelessWidget {
-  static const _primary = Color(0xFF0F766E);
-  static const _avatarColors = [
-    Color(0xFF0F766E),
-    Color(0xFFEC4899),
-    Color(0xFF10B981),
-    Color(0xFFF59E0B),
-    Color(0xFF3B82F6),
-  ];
+  static const _primary = AppColors.ink;
+  static const _avatarColors = AppColors.avatar;
 
   final String roomCode;
   final List<String> participantNames;
@@ -31,13 +26,14 @@ class RoomHeader extends StatelessWidget {
           Row(
             children: [
               const Text('방 코드',
-                  style: TextStyle(fontSize: 12, color: Color(0xFF6B7280))),
+                  style:
+                      TextStyle(fontSize: 12, color: AppColors.inkSecondary)),
               const SizedBox(width: 8),
               Container(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFF0FDFA),
+                  color: AppColors.fill,
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
@@ -56,7 +52,7 @@ class RoomHeader extends StatelessWidget {
                 child: GestureDetector(
                   onTap: onShareRoom,
                   child: const Icon(Icons.share_rounded,
-                      size: 16, color: Color(0xFF9CA3AF)),
+                      size: 16, color: AppColors.inkTertiary),
                 ),
               ),
             ],
@@ -65,8 +61,8 @@ class RoomHeader extends StatelessWidget {
           Row(
             children: [
               Text('참가자 ${participantNames.length}명',
-                  style:
-                      const TextStyle(fontSize: 12, color: Color(0xFF6B7280))),
+                  style: const TextStyle(
+                      fontSize: 12, color: AppColors.inkSecondary)),
               const SizedBox(width: 8),
               ...participantNames.asMap().entries.map((entry) {
                 final color = _avatarColors[entry.key % _avatarColors.length];
@@ -76,13 +72,15 @@ class RoomHeader extends StatelessWidget {
                   margin: const EdgeInsets.only(right: 4),
                   width: 28,
                   height: 28,
-                  decoration:
-                      BoxDecoration(color: color, shape: BoxShape.circle),
+                  decoration: BoxDecoration(
+                    color: color,
+                    shape: BoxShape.circle,
+                  ),
                   child: Center(
                     child: Text(
                       initial,
                       style: const TextStyle(
-                        color: Colors.white,
+                        color: AppColors.onAccent,
                         fontSize: 12,
                         fontWeight: FontWeight.bold,
                       ),

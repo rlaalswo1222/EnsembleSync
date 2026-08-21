@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/api_service.dart';
 import 'main_screen.dart';
+import '../theme/tokens.dart';
 
 class JoinRoomScreen extends StatefulWidget {
   final String nickname;
@@ -12,7 +13,7 @@ class JoinRoomScreen extends StatefulWidget {
 }
 
 class _JoinRoomScreenState extends State<JoinRoomScreen> {
-  static const _primary = Color(0xFF0F766E);
+  static const _primary = AppColors.ink;
 
   final _codeController = TextEditingController();
   final _focusNode = FocusNode();
@@ -77,7 +78,7 @@ class _JoinRoomScreenState extends State<JoinRoomScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFE8F3F1),
+      backgroundColor: AppColors.canvas,
       body: SafeArea(
         child: Center(
           child: Container(
@@ -104,13 +105,13 @@ class _JoinRoomScreenState extends State<JoinRoomScreen> {
                         style: TextStyle(
                           fontSize: 17,
                           fontWeight: FontWeight.w600,
-                          color: Color(0xFF1A1A2E),
+                          color: AppColors.ink,
                         ),
                       ),
                     ],
                   ),
                 ),
-                const Divider(height: 1, color: Color(0xFFF3F4F6)),
+                const Divider(height: 1, color: AppColors.fill),
 
                 // ── 본문 ────────────────────────────────────────
                 Expanded(
@@ -126,7 +127,7 @@ class _JoinRoomScreenState extends State<JoinRoomScreen> {
                             '방 코드를 입력하세요',
                             style: TextStyle(
                               fontSize: 14,
-                              color: Color(0xFF6B7280),
+                              color: AppColors.inkSecondary,
                             ),
                           ),
                           const SizedBox(height: 16),
@@ -142,7 +143,7 @@ class _JoinRoomScreenState extends State<JoinRoomScreen> {
                             '6자리 코드',
                             style: TextStyle(
                               fontSize: 12,
-                              color: Color(0xFF9CA3AF),
+                              color: AppColors.inkTertiary,
                             ),
                           ),
                         ],
@@ -161,7 +162,7 @@ class _JoinRoomScreenState extends State<JoinRoomScreen> {
                       onPressed: _isComplete && !_isLoading ? _onJoin : null,
                       style: FilledButton.styleFrom(
                         backgroundColor: _primary,
-                        disabledBackgroundColor: const Color(0xFFD1D5DB),
+                        disabledBackgroundColor: AppColors.inkTertiary,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(14),
                         ),
@@ -205,7 +206,7 @@ class _SixDigitInput extends StatelessWidget {
     required this.onSubmit,
   });
 
-  static const _primary = Color(0xFF0F766E);
+  static const _primary = AppColors.ink;
 
   @override
   Widget build(BuildContext context) {
@@ -245,7 +246,7 @@ class _SixDigitInput extends StatelessWidget {
                 height: 64,
                 decoration: BoxDecoration(
                   border: Border.all(
-                    color: isFocused ? _primary : const Color(0xFFD1D5DB),
+                    color: isFocused ? _primary : AppColors.inkTertiary,
                     width: isFocused ? 1.5 : 1.0,
                   ),
                   borderRadius: BorderRadius.circular(14),
@@ -259,9 +260,7 @@ class _SixDigitInput extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 24,
                         fontWeight: FontWeight.w500,
-                        color: hasChar
-                            ? const Color(0xFF1A1A2E)
-                            : const Color(0xFFD1D5DB),
+                        color: hasChar ? AppColors.ink : AppColors.inkTertiary,
                       ),
                     );
                   }),

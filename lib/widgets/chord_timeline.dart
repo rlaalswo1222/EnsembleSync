@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/track_analysis.dart';
+import '../theme/tokens.dart';
 
 /// 코드 진행. 현재 코드를 왼쪽 1/3 지점에 두고 다음 코드들이 오른쪽에 이어진다.
 ///
@@ -11,7 +12,7 @@ class ChordTimeline extends StatelessWidget {
     super.key,
     required this.chords,
     required this.seconds,
-    this.primary = const Color(0xFF0F766E),
+    this.primary = AppColors.accent,
   });
 
   final List<ChordSegment> chords;
@@ -46,7 +47,10 @@ class ChordTimeline extends StatelessWidget {
           padding: EdgeInsets.only(left: 16, bottom: 6),
           child: Text(
             '코드',
-            style: TextStyle(fontSize: 11, color: Color(0xFF9CA3AF)),
+            style: TextStyle(
+              fontSize: AppText.caption,
+              color: AppColors.inkTertiary,
+            ),
           ),
         ),
         SizedBox(
@@ -119,7 +123,7 @@ class _ChordChip extends StatelessWidget {
         border: Border.all(
           color: isCurrent
               ? primary
-              : (isPast ? const Color(0xFFF3F4F6) : const Color(0xFFE5E7EB)),
+              : (isPast ? AppColors.fill : AppColors.separator),
         ),
       ),
       child: Text(
@@ -129,7 +133,7 @@ class _ChordChip extends StatelessWidget {
           fontWeight: isCurrent ? FontWeight.bold : FontWeight.w500,
           color: isCurrent
               ? Colors.white
-              : (isPast ? const Color(0xFFD1D5DB) : const Color(0xFF374151)),
+              : (isPast ? AppColors.inkTertiary : AppColors.inkBody),
         ),
       ),
     );
