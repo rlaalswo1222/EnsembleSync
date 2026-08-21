@@ -15,10 +15,36 @@ from config import REDIS_HOST, REDIS_PORT, public_url
 # Redis 클라이언트 (pub/sub용)
 redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0, decode_responses=True)
 
-STEM_NAMES = ["vocals", "drums", "bass", "other"]
+# demucs 모델. htdemucs_6s 는 기본 4트랙에 기타와 피아노를 더해 6개를 낸다.
+DEMUCS_MODEL = "htdemucs_6s"
+
+STEM_NAMES = ["vocals", "drums", "bass", "guitar", "piano", "other"]
 
 # 재생용 mp3 의 비트레이트. 분리 트랙은 원래 완벽한 음질이 아니라 192k 면 충분하다.
 MP3_BITRATE = "192k"
+
+
+def _publish(room_id: str, job_id: str, stage: str, message: str,
+             progress: float = None):
+    """진행 상황을 방에 알린다.
+
+    분리는 수 분 걸리는데 화면에 "분리 중" 한 줄만 떠 있으면 멈춘 것인지
+    도는 것인지 알 수 없다. 어느 단계인지 글로 내보낸다.
+    """
+    payload = {
+        "type": "separation_stage",
+        "job_id": job_id,
+        "room_id": room_id,
+        "stage": stage,
+        "message": message,
+    }
+    if progress is not None:
+        payload["progress"] = progress
+    try:
+        redis_client.publish(f"room_{room_id}", json.dumps(payload))
+    except Exception:
+        # 알림이 안 가도 작업 자체는 계속되어야 한다.
+        pass
 
 
 def _encode_mp3(demucs_out: Path) -> dict:
@@ -65,9 +91,12 @@ def separate_audio_task(self, file_path: str, room_id: str, job_id: str):
         tmp_dir = tempfile.mkdtemp()
         input_path = ""
 
+        _publish(room_id, job_id, "prepare", f"{original.name} 읽는 중")
+
         if original.suffix.lower() in ['.mp3', '.m4a', '.aac', '.ogg', '.flac']:
             wav_path = os.path.join(tmp_dir, original.stem + '.wav')
 
+            _publish(room_id, job_id, "convert", "WAV 로 변환 중")
             convert = subprocess.run(
                 ['ffmpeg', '-y', '-i', str(original), wav_path],
                 capture_output=True, text=True
@@ -80,10 +109,14 @@ def separate_audio_task(self, file_path: str, room_id: str, job_id: str):
         else:
             input_path = str(original)
 
+        _publish(
+            room_id, job_id, "model",
+            f"분리 모델 준비 중 ({len(STEM_NAMES)}개 트랙)",
+        )
 
         cmd = [
             sys.executable, "-m", "demucs",
-            "--name", "htdemucs",
+            "--name", DEMUCS_MODEL,
             "--out", output_base_dir,
             input_path
         ]
@@ -107,6 +140,10 @@ def separate_audio_task(self, file_path: str, room_id: str, job_id: str):
                         "progress": percent
                     }
                     redis_client.publish(f"room_{room_id}", json.dumps(progress_msg))
+                    _publish(
+                        room_id, job_id, "separate",
+                        f"트랙 분리 중 {percent}%", progress=percent / 100.0,
+                    )
 
         # 프로세스가 완전히 끝날 때까지 대기
         process.wait()
@@ -115,7 +152,7 @@ def separate_audio_task(self, file_path: str, room_id: str, job_id: str):
             raise Exception("Demucs 분리 중 오류 발생")
 
         stem_name = Path(input_path).stem
-        demucs_out = Path(output_base_dir) / "htdemucs" / stem_name
+        demucs_out = Path(output_base_dir) / DEMUCS_MODEL / stem_name
         for track_name in STEM_NAMES:
             if not (demucs_out / f"{track_name}.wav").exists():
                 raise Exception(f"Demucs 출력 파일 없음: {track_name}.wav")
@@ -124,6 +161,8 @@ def separate_audio_task(self, file_path: str, room_id: str, job_id: str):
         # 아직 디스크에 있어서 디코딩을 다시 안 해도 되기 때문이다.
         # 4분 곡 기준 8초 안팎 (워커가 막 뜬 첫 작업은 numba 컴파일로 더 걸린다).
         # 실패해도 분리 결과는 그대로 살린다. 부가 정보일 뿐이다.
+        _publish(room_id, job_id, "analyze", "파형·키·코드 분석 중")
+
         analysis_ready = False
         try:
             track_analysis.analyze(
@@ -138,6 +177,8 @@ def separate_audio_task(self, file_path: str, room_id: str, job_id: str):
         except Exception as analysis_error:
             print(f"[track_analysis] 분석 실패 (분리는 정상): {analysis_error}")
 
+        _publish(room_id, job_id, "encode", "재생용 mp3 만드는 중")
+
         # 재생용 mp3. 실패한 트랙은 그냥 wav 로 재생하게 둔다.
         mp3_names = {}
         try:
@@ -145,14 +186,13 @@ def separate_audio_task(self, file_path: str, room_id: str, job_id: str):
         except Exception as mp3_error:
             print(f"[mp3] 변환 건너뜀 (분리는 정상): {mp3_error}")
 
+        _publish(room_id, job_id, "save", "결과 저장 중")
+
         # DB 에는 상대경로로 저장한다 (서버 주소가 바뀌어도 레코드 수정 불필요)
-        base_path = f"/uploads/separated/{job_id}/htdemucs/{stem_name}"
+        base_path = f"/uploads/separated/{job_id}/{DEMUCS_MODEL}/{stem_name}"
         analysis_url = f"/uploads/separated/{job_id}/analysis.json"
         tracks_dict = {
-            "vocals": f"{base_path}/vocals.wav",
-            "drums":  f"{base_path}/drums.wav",
-            "bass":   f"{base_path}/bass.wav",
-            "other":  f"{base_path}/other.wav",
+            name: f"{base_path}/{name}.wav" for name in STEM_NAMES
         }
 
         # 재생에 쓸 주소. wav 는 다운로드용으로 그대로 남는다.
