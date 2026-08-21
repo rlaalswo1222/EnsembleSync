@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 import 'join_room_screen.dart';
 import 'main_screen.dart';
+import '../theme/tokens.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -12,7 +13,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen>
     with SingleTickerProviderStateMixin {
-  static const _primary = Color(0xFF0F766E);
+  static const _primary = AppColors.ink;
 
   final _nicknameController = TextEditingController();
   final _roomNameController = TextEditingController();
@@ -118,7 +119,7 @@ class _HomeScreenState extends State<HomeScreen>
 
     return Scaffold(
       resizeToAvoidBottomInset: true,
-      backgroundColor: isMobile ? Colors.white : const Color(0xFFE8F3F1),
+      backgroundColor: isMobile ? Colors.white : AppColors.canvas,
       body: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
@@ -160,7 +161,7 @@ class _HomeScreenState extends State<HomeScreen>
                                   style: TextStyle(
                                     fontSize: 28,
                                     fontWeight: FontWeight.bold,
-                                    color: Color(0xFF1A1A2E),
+                                    color: AppColors.ink,
                                     letterSpacing: -0.5,
                                   ),
                                 ),
@@ -171,7 +172,7 @@ class _HomeScreenState extends State<HomeScreen>
                               '함께 음악을 만들어보세요',
                               style: TextStyle(
                                 fontSize: 14,
-                                color: Color(0xFF9CA3AF),
+                                color: AppColors.inkTertiary,
                               ),
                             ),
                             const SizedBox(height: 48),
@@ -201,20 +202,20 @@ class _HomeScreenState extends State<HomeScreen>
                                 textInputAction: TextInputAction.done,
                                 decoration: InputDecoration(
                                   hintText: '이름을 입력하세요...',
-                                  hintStyle:
-                                      const TextStyle(color: Color(0xFFBDBDBD)),
+                                  hintStyle: const TextStyle(
+                                      color: AppColors.inkTertiary),
                                   counterText: '',
                                   contentPadding: const EdgeInsets.symmetric(
                                       horizontal: 16, vertical: 14),
                                   border: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(10),
                                     borderSide: const BorderSide(
-                                        color: Color(0xFFE5E7EB)),
+                                        color: AppColors.separator),
                                   ),
                                   enabledBorder: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(10),
                                     borderSide: const BorderSide(
-                                        color: Color(0xFFE5E7EB)),
+                                        color: AppColors.separator),
                                   ),
                                   focusedBorder: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(10),
@@ -248,19 +249,19 @@ class _HomeScreenState extends State<HomeScreen>
                               decoration: InputDecoration(
                                 hintText: '비워두면 "닉네임의 방"으로 설정됩니다',
                                 hintStyle: const TextStyle(
-                                    color: Color(0xFFBDBDBD), fontSize: 12),
+                                    color: AppColors.inkTertiary, fontSize: 12),
                                 counterText: '',
                                 contentPadding: const EdgeInsets.symmetric(
                                     horizontal: 16, vertical: 14),
                                 border: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(10),
                                   borderSide: const BorderSide(
-                                      color: Color(0xFFE5E7EB)),
+                                      color: AppColors.separator),
                                 ),
                                 enabledBorder: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(10),
                                   borderSide: const BorderSide(
-                                      color: Color(0xFFE5E7EB)),
+                                      color: AppColors.separator),
                                 ),
                                 focusedBorder: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(10),
@@ -282,7 +283,7 @@ class _HomeScreenState extends State<HomeScreen>
                                 style: FilledButton.styleFrom(
                                   backgroundColor: _primary,
                                   disabledBackgroundColor:
-                                      const Color(0xFFD1D5DB),
+                                      AppColors.inkTertiary,
                                   shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(12),
                                   ),
@@ -314,19 +315,19 @@ class _HomeScreenState extends State<HomeScreen>
                                 onPressed: _onJoinRoom,
                                 style: OutlinedButton.styleFrom(
                                   side: const BorderSide(
-                                      color: Color(0xFFD1D5DB)),
+                                      color: AppColors.inkTertiary),
                                   shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(12),
                                   ),
                                 ),
                                 icon: const Icon(Icons.group_rounded,
-                                    size: 18, color: Color(0xFF6B7280)),
+                                    size: 18, color: AppColors.inkSecondary),
                                 label: const Text(
                                   '방 참가하기',
                                   style: TextStyle(
                                     fontSize: 15,
                                     fontWeight: FontWeight.w600,
-                                    color: Color(0xFF374151),
+                                    color: AppColors.inkBody,
                                   ),
                                 ),
                               ),
@@ -341,7 +342,7 @@ class _HomeScreenState extends State<HomeScreen>
                                 '닉네임을 입력하여 시작하세요',
                                 style: TextStyle(
                                   fontSize: 12,
-                                  color: Color(0xFF9CA3AF),
+                                  color: AppColors.inkTertiary,
                                 ),
                               ),
                             ),

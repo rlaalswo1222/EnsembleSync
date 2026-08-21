@@ -7,12 +7,14 @@ import '../models/track_result.dart';
 import '../services/api_service.dart';
 import '../widgets/bpm_result_view.dart';
 import '../widgets/mixer_workspace.dart';
+import '../theme/tokens.dart';
 
 enum ResultMode { bpm, track, empty }
 
 class ResultTab extends StatefulWidget {
   final List<TrackResult> tracks;
   final String? analysisUrl;
+  final bool bpmPending;
   final String? audioFilename;
   final Uint8List? audioBytes;
   final String? audioUrl;
@@ -24,6 +26,7 @@ class ResultTab extends StatefulWidget {
     super.key,
     required this.tracks,
     this.analysisUrl,
+    this.bpmPending = false,
     this.audioFilename,
     this.audioBytes,
     this.audioUrl,
@@ -68,17 +71,12 @@ class _ResultTabState extends State<ResultTab> {
   }
 
   ResultMode get _mode {
-    if (widget.preferredMode == ResultMode.track && widget.tracks.isNotEmpty) {
+    // 분리 결과가 있으면 언제나 워크스페이스다. BPM 은 그 안의 칸을 눌러서 본다.
+    if (widget.tracks.isNotEmpty) {
       return ResultMode.track;
-    }
-    if (widget.preferredMode == ResultMode.bpm && _bpmResult != null) {
-      return ResultMode.bpm;
     }
     if (_bpmResult != null) {
       return ResultMode.bpm;
-    }
-    if (widget.tracks.isNotEmpty) {
-      return ResultMode.track;
     }
     return ResultMode.empty;
   }
@@ -107,7 +105,7 @@ class _ResultTabState extends State<ResultTab> {
   Widget build(BuildContext context) {
     if (_isLoading) {
       return const Center(
-        child: CircularProgressIndicator(color: Color(0xFF0F766E)),
+        child: CircularProgressIndicator(color: AppColors.ink),
       );
     }
 
@@ -128,7 +126,9 @@ class _ResultTabState extends State<ResultTab> {
           ),
           tracks: widget.tracks,
           analysisUrl: widget.analysisUrl,
-          bpm: _bpmResult?.baseBpm,
+          bpmResult: _bpmResult,
+          bpmPending: widget.bpmPending && _bpmResult == null,
+          audioUrl: widget.audioUrl,
         );
       case ResultMode.empty:
         return const _EmptyResultView();
@@ -148,12 +148,12 @@ class _EmptyResultView extends StatelessWidget {
           Icon(
             Icons.hourglass_empty_rounded,
             size: 48,
-            color: Color(0xFFD1D5DB),
+            color: AppColors.inkTertiary,
           ),
           SizedBox(height: 16),
           Text(
             '분석 후 결과가 표시됩니다',
-            style: TextStyle(fontSize: 14, color: Color(0xFF9CA3AF)),
+            style: TextStyle(fontSize: 14, color: AppColors.inkTertiary),
           ),
         ],
       ),

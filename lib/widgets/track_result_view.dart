@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../models/track_result.dart';
 import '../services/api_service.dart';
 import '../services/platform_download.dart';
+import '../theme/tokens.dart';
 
 class TrackResultView extends StatefulWidget {
   final List<TrackResult> tracks;
@@ -22,7 +23,7 @@ class TrackResultView extends StatefulWidget {
 }
 
 class _TrackResultViewState extends State<TrackResultView> {
-  static const _primary = Color(0xFF0F766E);
+  static const _primary = AppColors.ink;
 
   final _trackPlayer = AudioPlayer();
   Duration _trackPosition = Duration.zero;
@@ -112,7 +113,8 @@ class _TrackResultViewState extends State<TrackResultView> {
           if (widget.audioFilename != null) ...[
             const SizedBox(height: 4),
             Text(widget.audioFilename!,
-                style: const TextStyle(fontSize: 12, color: Color(0xFF9CA3AF))),
+                style: const TextStyle(
+                    fontSize: 12, color: AppColors.inkTertiary)),
           ],
           const SizedBox(height: 16),
           ...widget.tracks.map(_buildTrackCard),
@@ -130,12 +132,11 @@ class _TrackResultViewState extends State<TrackResultView> {
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
-        color: const Color(0xFFF0FDFA),
+        color: AppColors.fill,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
-          color: isActive
-              ? _primary.withValues(alpha: 0.4)
-              : const Color(0xFFE5E7EB),
+          color:
+              isActive ? _primary.withValues(alpha: 0.4) : AppColors.separator,
         ),
       ),
       child: Column(
@@ -146,7 +147,7 @@ class _TrackResultViewState extends State<TrackResultView> {
                 width: 36,
                 height: 36,
                 decoration: const BoxDecoration(
-                  color: Color(0xFFCCFBF1),
+                  color: AppColors.separator,
                   shape: BoxShape.circle,
                 ),
                 child: Icon(track.icon, color: _primary, size: 18),
@@ -186,11 +187,11 @@ class _TrackResultViewState extends State<TrackResultView> {
                         height: 22,
                         child: CircularProgressIndicator(
                           strokeWidth: 2,
-                          color: Color(0xFF6B7280),
+                          color: AppColors.inkSecondary,
                         ),
                       )
                     : const Icon(Icons.download_rounded,
-                        color: Color(0xFF6B7280), size: 24),
+                        color: AppColors.inkSecondary, size: 24),
               ),
             ],
           ),
@@ -212,7 +213,7 @@ class _TrackResultViewState extends State<TrackResultView> {
                     _savingTrackMessage!,
                     style: const TextStyle(
                       fontSize: 12,
-                      color: Color(0xFF6B7280),
+                      color: AppColors.inkSecondary,
                       fontWeight: FontWeight.w500,
                     ),
                   ),
@@ -233,7 +234,7 @@ class _TrackResultViewState extends State<TrackResultView> {
                       overlayShape:
                           const RoundSliderOverlayShape(overlayRadius: 12),
                       activeTrackColor: _primary,
-                      inactiveTrackColor: const Color(0xFFE5E7EB),
+                      inactiveTrackColor: AppColors.separator,
                       thumbColor: _primary,
                     ),
                     child: Slider(

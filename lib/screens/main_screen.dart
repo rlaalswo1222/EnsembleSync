@@ -19,6 +19,7 @@ import '../widgets/room_header.dart';
 import '../widgets/score_canvas.dart';
 import 'analysis_tab.dart';
 import 'result_tab.dart';
+import '../theme/tokens.dart';
 
 class MainScreen extends StatefulWidget {
   final String nickname;
@@ -37,7 +38,7 @@ class MainScreen extends StatefulWidget {
 }
 
 class _MainScreenState extends State<MainScreen> {
-  static const _primary = Color(0xFF0F766E);
+  static const _primary = AppColors.ink;
 
   late final WebSocketService _ws;
 
@@ -71,6 +72,9 @@ class _MainScreenState extends State<MainScreen> {
   String? _bpmJobId;
   BpmResult? _bpmResult;
   ResultMode? _preferredResultMode;
+
+  /// 분리는 끝났고 BPM 분석만 아직 도는 중. 결과 화면에서 진행 표시를 낸다.
+  bool _bpmPending = false;
 
   bool get _isPdf => _pdfDocument != null && _pdfPageCount > 0;
   Uint8List? get _currentDisplayBytes =>
@@ -223,6 +227,8 @@ class _MainScreenState extends State<MainScreen> {
               _tracks = results;
               // 분석이 실패한 곡이면 null 로 온다. 그때는 파형/코드 없이 재생만 된다.
               _analysisUrl = payload['analysis_url'] as String?;
+              _bpmPending = true;
+              _bpmResult = null;
               _preferredResultMode = ResultMode.track;
               _tabIndex = 2;
             });
@@ -233,8 +239,9 @@ class _MainScreenState extends State<MainScreen> {
           if (jobId != null && mounted) {
             setState(() {
               _bpmJobId = jobId;
-              _preferredResultMode = ResultMode.bpm;
-              _tabIndex = 2;
+              _bpmPending = false;
+              // 화면은 그대로 둔다. 분리 결과 화면의 BPM 칸이 채워질 뿐이다.
+              if (_tracks.isEmpty) _preferredResultMode = ResultMode.bpm;
             });
             _loadBpmResult(jobId);
           }
@@ -448,7 +455,7 @@ class _MainScreenState extends State<MainScreen> {
       points: pts,
       color: Color(
         int.parse(
-              (payload['color'] as String? ?? '#0F766E').replaceFirst('#', ''),
+              (payload['color'] as String? ?? '#000000').replaceFirst('#', ''),
               radix: 16,
             ) |
             0xFF000000,
@@ -479,7 +486,7 @@ class _MainScreenState extends State<MainScreen> {
               width: 40,
               height: 4,
               decoration: BoxDecoration(
-                color: const Color(0xFFD1D5DB),
+                color: AppColors.inkTertiary,
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
@@ -533,7 +540,7 @@ class _MainScreenState extends State<MainScreen> {
               icon: null,
               label: '취소',
               onTap: () => Navigator.pop(context),
-              labelColor: const Color(0xFF6B7280),
+              labelColor: AppColors.inkSecondary,
             ),
             const SizedBox(height: 8),
           ],
@@ -543,15 +550,8 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   void _showColorPicker() {
-    final colors = [
-      _primary,
-      const Color(0xFFEC4899),
-      const Color(0xFF10B981),
-      const Color(0xFFF59E0B),
-      const Color(0xFF3B82F6),
-      const Color(0xFFEF4444),
-      Colors.black,
-    ];
+    // 필기 펜은 도구라 유채색을 그대로 쓴다. 화면 색과는 목적이 다르다.
+    const colors = AppColors.pen;
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.white,
@@ -720,7 +720,7 @@ class _MainScreenState extends State<MainScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFE8F3F1),
+      backgroundColor: AppColors.canvas,
       resizeToAvoidBottomInset: false,
       body: SafeArea(
         child: Center(
@@ -762,7 +762,7 @@ class _MainScreenState extends State<MainScreen> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFE5E7EB)),
+        border: Border.all(color: AppColors.separator),
       ),
       child: Row(
         children: [
@@ -776,7 +776,7 @@ class _MainScreenState extends State<MainScreen> {
           _ToolButton(
             icon: Icons.highlight_rounded,
             selected: _tool == DrawTool.highlighter,
-            color: const Color(0xFFF59E0B),
+            color: AppColors.pen[4],
             onTap: () => setState(() => _tool = DrawTool.highlighter),
           ),
           const SizedBox(width: 4),
@@ -795,7 +795,7 @@ class _MainScreenState extends State<MainScreen> {
               decoration: BoxDecoration(
                 color: _penColor,
                 shape: BoxShape.circle,
-                border: Border.all(color: const Color(0xFFE5E7EB), width: 2),
+                border: Border.all(color: AppColors.separator, width: 2),
               ),
             ),
           ),
@@ -848,6 +848,7 @@ class _MainScreenState extends State<MainScreen> {
           audioUrl: _audioUrl,
           bpmJobId: _bpmJobId,
           bpmResult: _bpmResult,
+          bpmPending: _bpmPending,
           preferredMode: _preferredResultMode,
         ),
       ],
@@ -861,7 +862,7 @@ class _MainScreenState extends State<MainScreen> {
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: const Color(0xFFE5E7EB)),
+          border: Border.all(color: AppColors.separator),
         ),
         clipBehavior: Clip.hardEdge,
         child: _isLoadingPdf || (_isPdf && _currentDisplayBytes == null)
@@ -882,15 +883,15 @@ class _MainScreenState extends State<MainScreen> {
             width: 64,
             height: 64,
             decoration: const BoxDecoration(
-              color: Color(0xFFF3F4F6),
+              color: AppColors.fill,
               shape: BoxShape.circle,
             ),
             child: const Icon(Icons.upload_rounded,
-                size: 32, color: Color(0xFF9CA3AF)),
+                size: 32, color: AppColors.inkTertiary),
           ),
           const SizedBox(height: 16),
           const Text('악보를 업로드하세요',
-              style: TextStyle(fontSize: 14, color: Color(0xFF6B7280))),
+              style: TextStyle(fontSize: 14, color: AppColors.inkSecondary)),
           const SizedBox(height: 16),
           ElevatedButton.icon(
             onPressed: _showUploadSheet,
@@ -934,7 +935,7 @@ class _MainScreenState extends State<MainScreen> {
     ];
     return Container(
       decoration: const BoxDecoration(
-        border: Border(top: BorderSide(color: Color(0xFFE5E7EB))),
+        border: Border(top: BorderSide(color: AppColors.separator)),
       ),
       child: Row(
         children: tabs.asMap().entries.map((entry) {
@@ -950,14 +951,14 @@ class _MainScreenState extends State<MainScreen> {
                     Icon(
                       entry.value['icon'] as IconData,
                       size: 22,
-                      color: selected ? _primary : const Color(0xFF9CA3AF),
+                      color: selected ? _primary : AppColors.inkTertiary,
                     ),
                     const SizedBox(height: 2),
                     Text(
                       entry.value['label'] as String,
                       style: TextStyle(
                         fontSize: 11,
-                        color: selected ? _primary : const Color(0xFF9CA3AF),
+                        color: selected ? _primary : AppColors.inkTertiary,
                         fontWeight:
                             selected ? FontWeight.w600 : FontWeight.normal,
                       ),
@@ -998,7 +999,7 @@ class _ToolButton extends StatelessWidget {
           borderRadius: BorderRadius.circular(8),
         ),
         child: Icon(icon,
-            size: 18, color: selected ? color : const Color(0xFF9CA3AF)),
+            size: 18, color: selected ? color : AppColors.inkTertiary),
       ),
     );
   }
@@ -1025,17 +1026,17 @@ class _SheetItem extends StatelessWidget {
               width: 40,
               height: 40,
               decoration: const BoxDecoration(
-                color: Color(0xFFF3F4F6),
+                color: AppColors.fill,
                 shape: BoxShape.circle,
               ),
-              child: Icon(icon, size: 20, color: const Color(0xFF6B7280)),
+              child: Icon(icon, size: 20, color: AppColors.inkSecondary),
             )
           : null,
       title: Text(
         label,
         style: TextStyle(
           fontSize: 15,
-          color: labelColor ?? const Color(0xFF1A1A2E),
+          color: labelColor ?? AppColors.ink,
           fontWeight: FontWeight.w500,
         ),
         textAlign: icon == null ? TextAlign.center : TextAlign.start,

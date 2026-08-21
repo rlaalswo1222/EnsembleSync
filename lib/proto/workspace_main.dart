@@ -11,6 +11,7 @@ library;
 
 import 'package:flutter/material.dart';
 
+import '../models/bpm_result.dart';
 import '../models/track_result.dart';
 import '../widgets/mixer_workspace.dart';
 
@@ -21,8 +22,17 @@ const String kBase =
 const String kAnalysisUrl = 'analysis.json';
 const String kStreamBase = 'stems';
 
-/// 이 곡의 드럼 트랙에서 뽑은 실제 값.
-const double kBpm = 99.4;
+/// 이 곡의 드럼 트랙에서 뽑은 실제 값. 상세 그래프는 서버 결과가 필요해서
+/// 미리보기에서는 빈 값으로 둔다.
+const BpmResult kBpmResult = BpmResult(
+  jobId: 'preview',
+  baseBpm: 99.4,
+  maxBpm: 99.4,
+  minBpm: 99.4,
+  avgBpm: 99.4,
+  bpmData: <BpmPoint>[],
+  deviationSections: <DeviationSection>[],
+);
 
 void main() => runApp(const WorkspacePreviewApp());
 
@@ -101,7 +111,7 @@ class _WorkspaceFrame extends StatelessWidget {
         ],
       ),
       body: MixerWorkspace(
-        bpm: kBpm,
+        bpmResult: kBpmResult,
         analysisUrl: kAnalysisUrl,
         tracks: <TrackResult>[
           TrackResult(
