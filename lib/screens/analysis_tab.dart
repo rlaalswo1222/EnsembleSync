@@ -21,6 +21,10 @@ class AnalysisTab extends StatefulWidget {
   final VoidCallback onGoToResult;
   final VoidCallback? onGoToTrackResult;
   final void Function(String jobId)? onBpmJobId;
+
+  /// WebSocket 알림을 놓쳤을 때 직접 물어서 되찾은 분리 결과.
+  /// 알림으로 오는 payload 와 같은 모양이라 방 화면은 같은 길로 처리한다.
+  final void Function(Map<String, dynamic> payload)? onSeparationRecovered;
   final void Function(Uint8List bytes, String filename)? onAudioPicked;
 
   /// 업로드된 음원의 서버 주소. 재생은 이 주소로 한다 (웹에서 바이트 재생 불가).
@@ -34,6 +38,7 @@ class AnalysisTab extends StatefulWidget {
     required this.onGoToResult,
     this.onGoToTrackResult,
     this.onBpmJobId,
+    this.onSeparationRecovered,
     this.onAudioPicked,
     this.onAudioUrl,
   });
@@ -66,6 +71,14 @@ class _AnalysisTabState extends State<AnalysisTab> {
   /// 진행률만 바뀌는 메시지가 줄줄이 쌓이지 않도록 마지막 단계를 기억한다.
   String? _lastStage;
 
+  /// 완료 알림을 놓쳤는지 확인하는 타이머.
+  ///
+  /// 분리 알림은 Redis pub/sub 으로 나가는데 재전송이 없다. 실제로 분리가
+  /// 도는 몇 분 사이에 WebSocket 이 keepalive 시간 초과로 끊겨서, 서버는
+  /// 멀쩡히 끝났는데 앱만 계속 기다린 적이 있다. 주기적으로 직접 물어본다.
+  Timer? _pollTimer;
+  static const _pollInterval = Duration(seconds: 12);
+
   String get _phaseLabel => switch (_phase) {
         _Phase.separating => '트랙 분리 중',
         _Phase.bpm => 'BPM 분석 중',
@@ -81,7 +94,67 @@ class _AnalysisTabState extends State<AnalysisTab> {
   @override
   void dispose() {
     _bpmTimeoutTimer?.cancel();
+    _pollTimer?.cancel();
     super.dispose();
+  }
+
+  void _startPolling() {
+    _pollTimer?.cancel();
+    _pollTimer = Timer.periodic(_pollInterval, (_) => _pollJob());
+  }
+
+  void _stopPolling() {
+    _pollTimer?.cancel();
+    _pollTimer = null;
+  }
+
+  /// 분리가 끝났는지 서버에 직접 묻는다.
+  Future<void> _pollJob() async {
+    final jobId = _trackJobId;
+    if (jobId == null || !mounted) return;
+
+    try {
+      final data = await ApiService().getTrackList(jobId);
+      if (!mounted || _trackJobId != jobId) return;
+
+      final tracks = data['tracks'] as List<dynamic>? ?? [];
+      if (data['job_status'] != 'done' || tracks.isEmpty) return;
+
+      _stopPolling();
+      setState(() {
+        _log.add('완료 알림을 놓쳐 직접 확인함');
+        _lastStage = 'recovered';
+      });
+
+      // 알림으로 오는 payload 와 같은 모양으로 맞춰 넘긴다.
+      widget.onSeparationRecovered?.call(<String, dynamic>{
+        'room_id': widget.roomId,
+        'job_id': jobId,
+        'tracks': <String, dynamic>{
+          for (final t in tracks)
+            (t as Map<String, dynamic>)['track_type'] as String:
+                t['file_url'] as String,
+        },
+        'streams': data['streams'] ?? <String, dynamic>{},
+        'analysis_url': data['analysis_url'],
+      });
+      _onSeparationDone();
+    } catch (_) {
+      // 한 번 실패해도 다음 차례에 다시 묻는다.
+    }
+  }
+
+  /// 분리가 끝났을 때 공통으로 하는 일. 알림으로 왔든 물어서 알았든 같다.
+  void _onSeparationDone() {
+    if (!mounted) return;
+    _stopPolling();
+    setState(() {
+      _phase = _Phase.bpm;
+      _trackProgress = 0.0;
+      _trackJobId = null;
+    });
+    (widget.onGoToTrackResult ?? widget.onGoToResult)();
+    unawaited(_startBpm());
   }
 
   Map<String, dynamic> _payloadFor(WsEvent event) {
@@ -162,16 +235,8 @@ class _AnalysisTabState extends State<AnalysisTab> {
       } else if (event.type == WsEventType.trackSeparated) {
         final payload = _payloadFor(event);
         if (!_belongsToCurrentRoom(payload)) return;
-        if (mounted) {
-          setState(() {
-            _phase = _Phase.bpm;
-            _trackProgress = 0.0;
-            _trackJobId = null;
-          });
-          // 분리 결과를 바로 띄우고, BPM 은 뒤에서 이어 돌린다.
-          (widget.onGoToTrackResult ?? widget.onGoToResult)();
-          unawaited(_startBpm());
-        }
+        // 분리 결과를 바로 띄우고, BPM 은 뒤에서 이어 돌린다.
+        _onSeparationDone();
       } else if (event.type == WsEventType.separationStage) {
         final payload = _payloadFor(event);
         if (!_belongsToCurrentRoom(payload)) return;
@@ -355,6 +420,7 @@ class _AnalysisTabState extends State<AnalysisTab> {
       }
       if (jobId != null) {
         setState(() => _trackJobId = jobId);
+        _startPolling();
       }
     } catch (e) {
       if (mounted) {
@@ -372,6 +438,7 @@ class _AnalysisTabState extends State<AnalysisTab> {
   void _cancelAnalysis() {
     _bpmTimeoutTimer?.cancel();
     _bpmTimeoutTimer = null;
+    _stopPolling();
     final jobId = _trackJobId;
     setState(() {
       _state = AnalysisState.idle;
