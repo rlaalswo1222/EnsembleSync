@@ -1,5 +1,6 @@
-from fastapi import APIRouter, UploadFile, File
+from fastapi import APIRouter, File, Request, UploadFile
 import psycopg2.extras
+import ratelimit
 from database import get_db
 from config import (
     MAX_AUDIO_MB,
@@ -30,6 +31,7 @@ def publish_room_event(room_id: str, message: dict):
 
 @router.post("/api/audio/{room_id}/upload")
 async def upload_audio(
+    http: Request,
     room_id: str,
     purpose: str,
     file: UploadFile = File(...)
@@ -40,6 +42,10 @@ async def upload_audio(
     - 허용 파일: mp3, wav, flac, m4a
     - purpose: bpm / pitch / separation (sync 관련 제거)
     """
+    limited = ratelimit.limit_ip(http, "upload", *ratelimit.UPLOAD_PER_IP)
+    if limited:
+        return limited
+
     conn = None
     file_path = None
     try:

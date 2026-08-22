@@ -1,5 +1,6 @@
-from fastapi import APIRouter, UploadFile, File
+from fastapi import APIRouter, File, Request, UploadFile
 import psycopg2.extras
+import ratelimit
 from database import get_db
 from config import REDIS_HOST, REDIS_PORT, touch_room
 import uuid
@@ -23,7 +24,13 @@ def publish_room_event(room_id: str, message: dict):
 
 
 @router.post("/api/score/{room_id}/upload")
-async def upload_score(room_id: str, file: UploadFile = File(...)):
+async def upload_score(
+    http: Request, room_id: str, file: UploadFile = File(...)
+):
+    limited = ratelimit.limit_ip(http, "score", *ratelimit.SCORE_PER_IP)
+    if limited:
+        return limited
+
     conn = None
     try:
         ext = file.filename.split('.')[-1].lower()

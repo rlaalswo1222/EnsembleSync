@@ -1,6 +1,7 @@
-from fastapi import APIRouter, UploadFile, File, Form
+from fastapi import APIRouter, File, Form, Request, UploadFile
 from fastapi.responses import FileResponse
 import psycopg2.extras
+import ratelimit
 from database import get_db
 from celery_app import celery_app
 from config import (
@@ -32,12 +33,22 @@ def publish_room_event(room_id: str, message: dict):
 
 @router.post("/api/track/separate")
 async def request_track_separation(
+    http: Request,
     room_id: str = Form(...),
     file: UploadFile = File(...)
 ):
     conn = None
     file_path = None
     try:
+        limited = (
+            ratelimit.limit_ip(http, "separate", *ratelimit.SEPARATE_PER_IP)
+            or ratelimit.limit_room(
+                room_id, "separate", *ratelimit.SEPARATE_PER_ROOM
+            )
+        )
+        if limited:
+            return limited
+
         ext = file.filename.split('.')[-1].lower()
         if ext not in ALLOWED_AUDIO_EXTENSIONS:
             return {"status": 400, "message": f"지원하지 않는 오디오 형식입니다. 허용 형식: {', '.join(ALLOWED_AUDIO_EXTENSIONS)}"}
