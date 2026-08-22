@@ -49,6 +49,33 @@ async def start_analysis(
 
     conn = None
     try:
+        # 같은 방에서 이미 돌고 있으면 새로 걸지 않는다.
+        #
+        # 두 번 눌렀거나 앱이 재시도를 잘못 돌린 경우가 대부분이다. 그대로
+        # 받으면 큐만 늘고, 어차피 앱은 마지막 결과 하나만 보여준다.
+        if job_type == "separation":
+            conn = get_db()
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cur.execute(
+                """
+                SELECT id::text FROM analysis_job
+                WHERE room_id = %s AND job_type = 'separation'
+                  AND status IN ('pending', 'processing')
+                ORDER BY requested_at LIMIT 1
+                """,
+                (room_id,),
+            )
+            running = cur.fetchone()
+            cur.close()
+            conn.close()
+            conn = None
+            if running:
+                return {
+                    "status": 409,
+                    "job_id": running["id"],
+                    "message": "이미 분석이 진행 중입니다.",
+                }
+
         ALLOWED_JOB_TYPES = {'bpm', 'pitch', 'separation'}
         if job_type not in ALLOWED_JOB_TYPES:
             return {
@@ -165,24 +192,115 @@ async def cancel_analysis(job_id: str):
         if conn:
             conn.close()
 
+# 처리 시간 표본이 이만큼은 있어야 평균을 믿는다.
+MIN_SAMPLES = 3
+
+# 표본이 모자랄 때 쓸 값. 2코어에서 4분 곡이 6분 30초 걸린 실측에서 왔다.
+FALLBACK_SECONDS = 400
+
+
+def _avg_seconds(cur) -> float:
+    """최근 분리 작업이 실제로 돈 시간의 평균.
+
+    requested_at 이 아니라 started_at 부터 잰다. 큐에서 기다린 시간까지
+    포함하면 대기가 길수록 예상 시간이 부풀어 오르고, 그 값으로 다시 대기
+    시간을 계산하니 점점 커진다.
+    """
+    cur.execute(
+        """
+        SELECT avg(EXTRACT(EPOCH FROM (completed_at - started_at))) AS sec,
+               count(*) AS n
+        FROM (
+            SELECT completed_at, started_at FROM analysis_job
+            WHERE job_type = 'separation' AND status = 'done'
+              AND started_at IS NOT NULL AND completed_at IS NOT NULL
+            ORDER BY completed_at DESC LIMIT 20
+        ) recent
+        """
+    )
+    row = cur.fetchone()
+    if not row or not row["n"] or row["n"] < MIN_SAMPLES or not row["sec"]:
+        return FALLBACK_SECONDS
+    return float(row["sec"])
+
+
+def _queue_info(cur, job) -> dict:
+    """내 앞에 몇 개가 남았는지와 대략 얼마나 걸릴지."""
+    if job["job_type"] != "separation" or job["status"] not in (
+        "pending",
+        "processing",
+    ):
+        return {}
+
+    avg = _avg_seconds(cur)
+
+    if job["status"] == "processing":
+        cur.execute(
+            "SELECT EXTRACT(EPOCH FROM (now() - started_at)) AS sec "
+            "FROM analysis_job WHERE id = %s",
+            (job["id"],),
+        )
+        elapsed = float((cur.fetchone() or {}).get("sec") or 0)
+        return {
+            "queue_position": 0,
+            "eta_seconds": max(0, int(avg - elapsed)),
+        }
+
+    # 내 앞에 있는 것 — 지금 도는 것과, 나보다 먼저 요청된 대기 건.
+    cur.execute(
+        """
+        SELECT
+          count(*) FILTER (WHERE status = 'processing') AS running,
+          count(*) FILTER (
+            WHERE status = 'pending' AND requested_at < %s
+          ) AS waiting,
+          max(started_at) FILTER (WHERE status = 'processing') AS started
+        FROM analysis_job
+        WHERE job_type = 'separation' AND status IN ('pending', 'processing')
+        """,
+        (job["requested_at"],),
+    )
+    row = cur.fetchone() or {}
+    running = int(row.get("running") or 0)
+    waiting = int(row.get("waiting") or 0)
+
+    remaining = avg
+    if running and row.get("started"):
+        cur.execute(
+            "SELECT EXTRACT(EPOCH FROM (now() - %s)) AS sec", (row["started"],)
+        )
+        elapsed = float((cur.fetchone() or {}).get("sec") or 0)
+        remaining = max(0, avg - elapsed)
+
+    return {
+        "queue_position": running + waiting,
+        "eta_seconds": int(remaining + waiting * avg) if running else
+                       int(waiting * avg),
+    }
+
+
 @router.get("/api/analysis/{job_id}/status")
 async def get_analysis_status(job_id: str):
-    """
-    분석 작업 상태 조회 API
-    - pending / processing / done / failed
+    """분석 작업 상태와 대기 순번.
+
+    서버는 한 번에 한 곡만 돌린다. 그래서 몇 분이 걸릴지는 내 곡의 길이가
+    아니라 앞에 몇 명이 있느냐로 정해진다. 그것을 알려주지 않으면 사용자는
+    진행률 0% 를 보며 고장 났다고 생각한다.
     """
     conn = None
     try:
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cur.execute(
-            "SELECT id, job_type, status, requested_at, completed_at FROM analysis_job WHERE id = %s",
+            "SELECT id, job_type, status, requested_at, completed_at, "
+            "started_at FROM analysis_job WHERE id = %s",
             (job_id,)
         )
         job = cur.fetchone()
         if not job:
             return {"status": 404, "message": "존재하지 않는 작업입니다."}
 
+        queue = _queue_info(cur, job)
         cur.close()
         return {
             "status": 200,
@@ -190,7 +308,8 @@ async def get_analysis_status(job_id: str):
             "job_type": job['job_type'],
             "job_status": job['status'],
             "requested_at": str(job['requested_at']),
-            "completed_at": str(job['completed_at']) if job['completed_at'] else None
+            "completed_at": str(job['completed_at']) if job['completed_at'] else None,
+            **queue,
         }
     except Exception as e:
         return {"status": 500, "message": f"상태 조회 중 오류가 발생했습니다: {str(e)}"}

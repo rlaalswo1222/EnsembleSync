@@ -119,6 +119,12 @@ CREATE TABLE analysis_job (
                     CHECK (job_type IN ('bpm', 'sync', 'pitch', 'separation')),
     status          VARCHAR(20) NOT NULL DEFAULT 'pending'
                     CHECK (status IN ('pending', 'processing', 'done', 'failed')),
+    -- 워커가 실제로 집어든 시각.
+    --
+    -- requested_at 과 completed_at 만으로는 큐에서 기다린 시간과 실제로
+    -- 도는 데 걸린 시간을 가를 수 없다. 대기 인원에게 남은 시간을
+    -- 알려주려면 후자를 알아야 한다.
+    started_at      TIMESTAMP,
     celery_task_id  VARCHAR(200),
     requested_at    TIMESTAMP   NOT NULL DEFAULT now(),
     completed_at    TIMESTAMP                           -- 완료 시각 (NR-01 측정용)

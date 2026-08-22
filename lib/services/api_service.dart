@@ -188,7 +188,10 @@ class ApiService {
       final data = jsonDecode(response.body) as Map<String, dynamic>;
       if (data['status'] == 200) return data;
       throw ApiException(
-          data['status'] as int, data['message'] as String? ?? '분석 시작 실패');
+        data['status'] as int,
+        data['message'] as String? ?? '분석 시작 실패',
+        data,
+      );
     }
     throw ApiException(response.statusCode, _parseError(response.body));
   }
@@ -243,6 +246,26 @@ class ApiService {
       throw ApiException(
         data['status'] as int? ?? 500,
         data['message'] as String? ?? '방 상태 조회 실패',
+      );
+    }
+    throw ApiException(response.statusCode, _parseError(response.body));
+  }
+
+  /// 분석 작업 상태와 대기 순번.
+  ///
+  /// 서버는 한 번에 한 곡만 돌린다. 몇 분이 걸릴지는 내 곡 길이가 아니라
+  /// 앞에 몇 명이 있느냐로 정해진다.
+  Future<Map<String, dynamic>> getAnalysisStatus(String jobId) async {
+    final uri = Uri.parse('${ApiConstants.baseUrl}/api/analysis/$jobId/status');
+    final response = await _client
+        .get(uri, headers: _headers)
+        .timeout(const Duration(seconds: 10));
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      if (data['status'] == 200) return data;
+      throw ApiException(
+        data['status'] as int? ?? 500,
+        data['message'] as String? ?? '작업 상태 조회 실패',
       );
     }
     throw ApiException(response.statusCode, _parseError(response.body));
@@ -311,7 +334,14 @@ class ApiService {
 class ApiException implements Exception {
   final int statusCode;
   final String message;
-  const ApiException(this.statusCode, this.message);
+
+  /// 서버가 함께 보낸 본문.
+  ///
+  /// 오류라고 해서 버릴 것만 있는 것은 아니다. "이미 분석이 진행 중" 응답에는
+  /// 그 작업의 id 가 들어 있어서, 앱이 새로 걸지 않고 거기에 붙을 수 있다.
+  final Map<String, dynamic>? data;
+
+  const ApiException(this.statusCode, this.message, [this.data]);
 
   @override
   String toString() => 'ApiException($statusCode): $message';
