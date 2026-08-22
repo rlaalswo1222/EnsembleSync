@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Request
 import psycopg2.extras
+import disk
 import ratelimit
 from database import get_db
 from celery_app import celery_app
@@ -39,6 +40,12 @@ async def start_analysis(
         )
         if limited:
             return limited
+
+        # 6분을 돌린 끝에 공간이 없어 실패하는 것보다 지금 알려주는 편이
+        # 낫다. 사용자는 이유를 알 수 있어야 한다.
+        full = disk.guard_analyze()
+        if full:
+            return full
 
     conn = None
     try:

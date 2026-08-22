@@ -20,6 +20,7 @@ import os
 import shutil
 from datetime import datetime, timedelta
 
+import disk
 from celery_app import celery_app
 from config import (
     ROOM_INACTIVE_DAYS,
@@ -300,6 +301,15 @@ def _delete_inactive_rooms(cur):
 @celery_app.task(name="tasks.cleanup_separated")
 def cleanup_separated(retention_days: int = None, dry_run: bool = False):
     days = RETENTION_DAYS if retention_days is None else int(retention_days)
+
+    # 디스크가 차오르면 기준을 좁힌다.
+    #
+    # 평소 기준은 "쓰기 좋게" 정한 값이다. 공간이 없으면 그 편의보다 서비스가
+    # 도는 것이 먼저다. 절반으로 줄이되 하루 밑으로는 내리지 않는다. 오늘
+    # 만든 것까지 지우면 쓰는 도중에 사라진다.
+    tight = disk.is_tight()
+    if tight:
+        days = max(1, days // 2)
     conn = get_db()
     cur = conn.cursor()
     try:
@@ -334,6 +344,8 @@ def cleanup_separated(retention_days: int = None, dry_run: bool = False):
             "status": "success",
             "dry_run": dry_run,
             "retention_days": days,
+            "disk_tight": tight,
+            "disk": disk.usage(),
             "room_inactive_days": ROOM_INACTIVE_DAYS,
             "dangling_records": len(dangling),
             "expired_jobs": len(expired),

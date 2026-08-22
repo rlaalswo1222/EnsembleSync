@@ -1,5 +1,6 @@
 from fastapi import APIRouter, File, Request, UploadFile
 import psycopg2.extras
+import disk
 import ratelimit
 from database import get_db
 from config import REDIS_HOST, REDIS_PORT, touch_room
@@ -30,6 +31,10 @@ async def upload_score(
     limited = ratelimit.limit_ip(http, "score", *ratelimit.SCORE_PER_IP)
     if limited:
         return limited
+
+    full = disk.guard_upload()
+    if full:
+        return full
 
     conn = None
     try:
