@@ -1,5 +1,6 @@
 from fastapi import APIRouter, File, Request, UploadFile
 import psycopg2.extras
+import disk
 import ratelimit
 from database import get_db
 from config import (
@@ -45,6 +46,11 @@ async def upload_audio(
     limited = ratelimit.limit_ip(http, "upload", *ratelimit.UPLOAD_PER_IP)
     if limited:
         return limited
+
+    # 받아놓고 나중에 터지느니 지금 거절하는 편이 낫다.
+    full = disk.guard_upload()
+    if full:
+        return full
 
     conn = None
     file_path = None

@@ -1,6 +1,7 @@
 from fastapi import APIRouter, File, Form, Request, UploadFile
 from fastapi.responses import FileResponse
 import psycopg2.extras
+import disk
 import ratelimit
 from database import get_db
 from celery_app import celery_app
@@ -48,6 +49,10 @@ async def request_track_separation(
         )
         if limited:
             return limited
+
+        full = disk.guard_upload()
+        if full:
+            return full
 
         ext = file.filename.split('.')[-1].lower()
         if ext not in ALLOWED_AUDIO_EXTENSIONS:
