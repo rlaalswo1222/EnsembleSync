@@ -24,14 +24,21 @@ SEPARATED_DIR = "uploads/separated"
 RETENTION_DAYS = int(os.getenv("SEPARATED_RETENTION_DAYS", "30"))
 ORPHAN_GRACE_HOURS = 24  # 진행 중인 작업을 지우지 않도록 하루는 봐준다
 
-# 이 시간이 지나도 pending 이면 멈춘 것으로 본다.
+# 멈춘 작업을 판정하는 기준.
 #
 # 작업 도중 워커가 죽으면(배포로 컨테이너가 재시작되는 경우가 대부분이다)
-# 실패 처리 코드가 실행될 기회 자체가 없어서 status 가 pending 인 채로 남는다.
-# 실제로 그렇게 남은 것이 열 건 넘게 쌓여 있었다.
+# 실패 처리 코드가 실행될 기회 자체가 없어서 status 가 그대로 남는다.
 #
-# 가장 오래 걸린 분리가 7분이었다. 여유를 크게 잡아도 두 시간이면 충분하다.
-STALE_JOB_HOURS = 2
+# 대기와 실행을 반드시 구분해야 한다. 둘 다 pending 으로 두고 시간만 보면,
+# 사용자가 몰려 큐가 밀렸을 때 **정직하게 기다리던 작업까지 실패로 바뀐다**.
+# 서버가 한 번에 한 곡밖에 못 돌리므로 큐가 몇 시간씩 밀리는 것은 정상이다.
+#
+#   processing  워커가 집어들었는데 안 끝남 → 죽은 것이 거의 확실
+#   pending     아직 아무도 안 가져감 → 큐 대기일 수 있어 넉넉히 본다
+#
+# 가장 오래 걸린 분리가 7분이었다.
+STALE_PROCESSING_HOURS = 2
+STALE_PENDING_HOURS = 24
 
 
 def _job_dir(job_id: str) -> str:
@@ -108,10 +115,12 @@ def _fail_stale_jobs(cur) -> int:
         """
         UPDATE analysis_job
         SET status = 'failed', completed_at = now()
-        WHERE status = 'pending'
-          AND requested_at < now() - make_interval(hours => %s)
+        WHERE (status = 'processing'
+                 AND requested_at < now() - make_interval(hours => %s))
+           OR (status = 'pending'
+                 AND requested_at < now() - make_interval(hours => %s))
         """,
-        (STALE_JOB_HOURS,),
+        (STALE_PROCESSING_HOURS, STALE_PENDING_HOURS),
     )
     return cur.rowcount
 
