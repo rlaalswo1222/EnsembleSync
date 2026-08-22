@@ -18,10 +18,13 @@ import shutil
 from datetime import datetime, timedelta
 
 from celery_app import celery_app
+from config import ROOM_INACTIVE_DAYS, SEPARATED_DIR, SEPARATED_RETENTION_DAYS
 from database import get_db
 
-SEPARATED_DIR = "uploads/separated"
-RETENTION_DAYS = int(os.getenv("SEPARATED_RETENTION_DAYS", "30"))
+# 정리 기준을 "작업이 만들어진 날짜" 가 아니라 "방이 마지막으로 쓰인 날짜"
+# 로 잡는다. 40일째 계속 쓰고 있는 방의 결과가 사라지면 안 되고, 반대로
+# 만든 지 하루 만에 버려진 방을 오래 들고 있을 이유도 없다.
+RETENTION_DAYS = SEPARATED_RETENTION_DAYS
 ORPHAN_GRACE_HOURS = 24  # 진행 중인 작업을 지우지 않도록 하루는 봐준다
 
 # 멈춘 작업을 판정하는 기준.
@@ -63,26 +66,45 @@ def _dangling(cur):
 
 
 def _expired(cur, retention_days: int):
-    """기간이 지난 작업. 파일이 살아있는 것 중에서만 고르고,
-    방마다 최신 1건은 제외한다."""
+    """지울 분리 결과를 고른다.
+
+    방이 살아 있는지에 따라 기준이 다르다.
+
+      쉬는 방   전부 지운다. 최신 1건도 남기지 않는다.
+      쓰는 방   오래된 것만 지우고 최신 1건은 남긴다.
+
+    최신 1건을 남기는 이유는 BPM 분석이 "그 방의 가장 최근 분리" 의 드럼
+    트랙을 쓰기 때문이다. 쉬는 방에는 BPM 을 돌릴 일이 없으므로 남길
+    이유도 없다.
+
+    원본 음원은 건드리지 않는다. 전체 사용량의 12% 뿐이고, 사용자가 올린
+    것이라 다시 만들 수 없다. 분리 결과는 원본만 있으면 다시 만든다.
+    """
     cur.execute(
         """
-        SELECT DISTINCT st.job_id::text, aj.room_id::text, aj.completed_at
+        SELECT DISTINCT st.job_id::text, aj.room_id::text, aj.completed_at,
+               r.last_active_at
         FROM separated_track st
         JOIN analysis_job aj ON aj.id = st.job_id
+        JOIN room r ON r.id = aj.room_id
         WHERE aj.completed_at IS NOT NULL
         ORDER BY aj.room_id::text, aj.completed_at DESC
         """
     )
     rows = [r for r in cur.fetchall() if os.path.isdir(_job_dir(r[0]))]
 
-    cutoff = datetime.now() - timedelta(days=retention_days)
+    job_cutoff = datetime.now() - timedelta(days=retention_days)
+    room_cutoff = datetime.now() - timedelta(days=ROOM_INACTIVE_DAYS)
+
     seen_rooms, expired = set(), []
-    for job_id, room_id, completed_at in rows:
-        if room_id not in seen_rooms:   # 방의 최신 1건은 보존
+    for job_id, room_id, completed_at, last_active_at in rows:
+        if last_active_at < room_cutoff:
+            expired.append(job_id)      # 쉬는 방은 최신도 남기지 않는다
+            continue
+        if room_id not in seen_rooms:   # 쓰는 방의 최신 1건은 보존
             seen_rooms.add(room_id)
             continue
-        if completed_at < cutoff:
+        if completed_at < job_cutoff:
             expired.append(job_id)
     return expired
 
@@ -158,6 +180,7 @@ def cleanup_separated(retention_days: int = None, dry_run: bool = False):
             "status": "success",
             "dry_run": dry_run,
             "retention_days": days,
+            "room_inactive_days": ROOM_INACTIVE_DAYS,
             "dangling_records": len(dangling),
             "expired_jobs": len(expired),
             "orphan_dirs": len(orphans),

@@ -7,6 +7,7 @@ from config import (
     REDIS_PORT,
     public_url,
     save_upload_limited,
+    touch_room,
 )
 import uuid
 import os
@@ -92,6 +93,7 @@ async def upload_audio(
             """,
             (audio_id, room_id, ext, file_url, purpose)
         )
+        touch_room(cur, room_id)
         conn.commit()
         cur.close()
 

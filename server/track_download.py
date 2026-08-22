@@ -11,6 +11,7 @@ from config import (
     local_upload_path,
     normalize_public_url,
     public_url,
+    touch_room,
 )
 import uuid
 import os
@@ -93,6 +94,7 @@ async def request_track_separation(
             queue="separation",
         )
         cur.execute("UPDATE analysis_job SET celery_task_id = %s WHERE id = %s", (task.id, job_id))
+        touch_room(cur, room_id)
         conn.commit()
         cur.close()
 
