@@ -77,10 +77,14 @@ class _MixerWorkspaceState extends State<MixerWorkspace> {
   void initState() {
     super.initState();
     _engine.addListener(_onEngineChanged);
+    _startLoading();
+    _loadAnalysis();
+  }
+
+  void _startLoading() {
     _engine.load(<String, String>{
       for (final TrackResult t in widget.tracks) _stemOf(t): t.playbackUrl,
     });
-    _loadAnalysis();
   }
 
   @override
@@ -213,6 +217,7 @@ class _MixerWorkspaceState extends State<MixerWorkspace> {
       return _Message(
         icon: Icons.error_outline_rounded,
         text: '오디오를 불러오지 못했습니다\n${_engine.error}',
+        onRetry: _startLoading,
       );
     }
     if (!_engine.isReady) {
@@ -220,6 +225,8 @@ class _MixerWorkspaceState extends State<MixerWorkspace> {
         icon: Icons.graphic_eq_rounded,
         text: _engine.loadingLabel.isEmpty ? '준비 중' : _engine.loadingLabel,
         spinner: true,
+        // 오래 걸리면 손으로 다시 걸어볼 수 있어야 한다. 화면에 갇히면 안 된다.
+        onRetry: _engine.isLoading ? null : _startLoading,
       );
     }
 
@@ -914,11 +921,13 @@ class _Message extends StatelessWidget {
     required this.icon,
     required this.text,
     this.spinner = false,
+    this.onRetry,
   });
 
   final IconData icon;
   final String text;
   final bool spinner;
+  final VoidCallback? onRetry;
 
   @override
   Widget build(BuildContext context) {
@@ -942,6 +951,15 @@ class _Message extends StatelessWidget {
               ),
             ),
           ),
+          if (onRetry != null) ...<Widget>[
+            const SizedBox(height: AppSpace.md),
+            TextButton.icon(
+              onPressed: onRetry,
+              style: TextButton.styleFrom(foregroundColor: AppColors.ink),
+              icon: const Icon(Icons.refresh_rounded, size: 18),
+              label: const Text('다시 시도'),
+            ),
+          ],
         ],
       ),
     );
