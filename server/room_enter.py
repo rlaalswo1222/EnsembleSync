@@ -2,7 +2,6 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 import psycopg2
 import psycopg2.extras
-from config import touch_room
 from database import get_db
 
 router = APIRouter()
@@ -43,7 +42,13 @@ async def join_room(request: RoomJoinRequest):
             (room['id'], member_id)
         )
 
-        touch_room(cur, room['id'])
+        # 입장은 활동으로 세지 않는다.
+        #
+        # 세면 정리 예고를 볼 수가 없다. 보려고 들어가는 순간 기한이 다시
+        # 30일로 돌아가기 때문이다. 예고를 보고 '보관' 을 누르게 하려면
+        # 들여다보는 것과 실제로 쓰는 것을 갈라야 한다.
+        #
+        # 음원 업로드·분석 요청·악보 업로드만 활동으로 센다.
         conn.commit()
         cur.close()
         return {"status": 200, "room_name": room['name'], "room_id": str(room['id']), "message": "입장에 성공했습니다."}

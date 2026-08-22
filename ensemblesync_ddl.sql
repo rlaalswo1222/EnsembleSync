@@ -30,7 +30,11 @@ CREATE TABLE room (
     --
     -- 정리 기준으로 쓴다. "전원이 나갔다" 를 신호로 삼으면 안 된다.
     -- 화면만 꺼도 WebSocket 이 끊기므로 잠깐 자리를 비운 것과 구분되지
-    -- 않는다. 입장·업로드·분석·악보 같은 실제 행위만 센다.
+    -- 않는다.
+    --
+    -- 음원 업로드 · 분석 요청 · 악보 업로드만 센다. 입장은 세지 않는다.
+    -- 세면 정리 예고를 볼 수가 없다. 보려고 들어가는 순간 기한이 다시
+    -- 늘어나기 때문이다.
     last_active_at TIMESTAMP NOT NULL DEFAULT now(),
     is_active   BOOLEAN     NOT NULL DEFAULT true
 );
