@@ -10,7 +10,7 @@ import redis
 from database import get_db
 from celery_app import celery_app
 import track_analysis
-from config import REDIS_HOST, REDIS_PORT, public_url
+from config import REDIS_HOST, REDIS_PORT, local_upload_path, public_url
 
 # Redis 클라이언트 (pub/sub용)
 redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0, decode_responses=True)
@@ -22,6 +22,15 @@ STEM_NAMES = ["vocals", "drums", "bass", "guitar", "piano", "other"]
 
 # 재생용 mp3 의 비트레이트. 분리 트랙은 원래 완벽한 음질이 아니라 192k 면 충분하다.
 MP3_BITRATE = "192k"
+
+# 새 곡을 분석하면 그 방의 이전 곡 결과를 지운다.
+#
+# 방 하나가 곡을 여러 개 들고 있으면 곡마다 300MB 씩 쌓인다. 사용자가
+# 늘면 이게 디스크를 가장 빨리 채우는 경로가 된다. 앱도 마지막 결과만
+# 보여주므로 이전 것은 화면에서 이미 닿을 수 없다.
+#
+# 끄고 싶으면 KEEP_PREVIOUS_SONGS=1 을 준다.
+DISCARD_PREVIOUS = os.getenv("KEEP_PREVIOUS_SONGS", "0") != "1"
 
 
 def _mark_processing(job_id: str):
@@ -38,6 +47,84 @@ def _mark_processing(job_id: str):
     except Exception as e:
         # 상태 표시가 안 되어도 분리 자체는 진행한다.
         print(f"[job] processing 표시 실패: {e}")
+
+
+def _discard_previous_songs(room_id: str, keep_job_id: str) -> int:
+    """이 방의 이전 분석 결과를 지우고 지운 건수를 돌려준다.
+
+    반드시 새 결과가 DB 에 저장된 뒤에 부른다. 먼저 지우면 새 분석이
+    실패했을 때 이전 것까지 잃는다.
+
+    끝난 작업(done)만 건드린다. 돌고 있는 작업의 폴더를 지우면 그 작업이
+    쓰다 만 파일을 잃는다.
+
+    원본 음원은 파일만 지우고 DB 레코드는 남긴다. analysis_job 이
+    audio_file 을 참조하는데 ON DELETE CASCADE 가 없어서, 레코드를 지우려면
+    작업 기록까지 먼저 지워야 한다. 무엇을 분석했었는지는 남겨 두는 편이
+    낫고, 용량을 먹는 것은 어차피 파일이다.
+    """
+    removed = 0
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT DISTINCT aj.id::text, af.file_url
+            FROM analysis_job aj
+            JOIN audio_file af ON af.id = aj.audio_file_id
+            WHERE aj.room_id = %s
+              AND aj.job_type = 'separation'
+              AND aj.status = 'done'
+              AND aj.id <> %s
+            """,
+            (room_id, keep_job_id),
+        )
+        rows = cur.fetchall()
+        if not rows:
+            return 0
+
+        old_ids = [r[0] for r in rows]
+
+        for old_id, _ in rows:
+            path = os.path.join(os.getcwd(), "uploads", "separated", old_id)
+            if os.path.isdir(path):
+                shutil.rmtree(path, ignore_errors=True)
+                removed += 1
+
+        # 파일이 없어졌으니 레코드도 지운다. 남기면 앱에서 404 가 난다.
+        cur.execute(
+            "DELETE FROM separated_track WHERE job_id::text = ANY(%s)",
+            (old_ids,),
+        )
+
+        # 이전 곡의 원본. 지금 곡이 쓰는 파일은 건드리지 않는다.
+        cur.execute(
+            "SELECT file_url FROM audio_file WHERE id = ("
+            "  SELECT audio_file_id FROM analysis_job WHERE id = %s)",
+            (keep_job_id,),
+        )
+        keep_row = cur.fetchone()
+        keep_url = keep_row[0] if keep_row else None
+
+        for _, file_url in rows:
+            if not file_url or file_url == keep_url:
+                continue
+            try:
+                path = local_upload_path(file_url)
+                if os.path.exists(path):
+                    os.remove(path)
+            except Exception:
+                pass
+
+        conn.commit()
+        return removed
+    except Exception as e:
+        conn.rollback()
+        print(f"[discard] 이전 곡 정리 실패: {e}")
+        return 0
+    finally:
+        cur.close()
+        conn.close()
 
 
 def _publish(room_id: str, job_id: str, stage: str, message: str,
@@ -243,6 +330,12 @@ def separate_audio_task(self, file_path: str, room_id: str, job_id: str):
         finally:
             cur.close()
             conn.close()
+
+        # 새 결과가 안전하게 저장된 뒤에야 이전 것을 버린다.
+        if DISCARD_PREVIOUS:
+            discarded = _discard_previous_songs(room_id, job_id)
+            if discarded:
+                print(f"[discard] 이전 곡 {discarded}건 정리")
 
         complete_msg = {
             "type": "track_separated",
