@@ -36,6 +36,13 @@ class WebSocketService {
       StreamController<WsEvent>.broadcast();
   Timer? _reconnectTimer;
 
+  /// 서버가 보내는 keepalive 에 응답하지 못하면 연결이 끊긴다. 실제로
+  /// 분리가 도는 몇 분 사이에 'keepalive ping timeout' 으로 끊겨서, 완료
+  /// 알림을 못 받고 앱이 계속 기다린 적이 있다. 이쪽에서도 주기적으로
+  /// 신호를 보내 연결을 살려 둔다.
+  Timer? _heartbeatTimer;
+  static const _heartbeatInterval = Duration(seconds: 15);
+
   final String roomId;
   final String nickname;
 
@@ -64,6 +71,7 @@ class WebSocketService {
         onError: (_) => _scheduleReconnect(),
         onDone: _scheduleReconnect,
       );
+      _startHeartbeat();
     } catch (_) {
       _scheduleReconnect();
     }
@@ -132,8 +140,32 @@ class WebSocketService {
     send({'type': 'score_uploaded', 'file_url': fileUrl});
   }
 
+  void _startHeartbeat() {
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = Timer.periodic(_heartbeatInterval, (_) {
+      if (_isDisposed) return;
+      try {
+        // 서버는 알 수 없는 type 을 그냥 무시한다. 오가는 것 자체가 목적이다.
+        _channel?.sink.add(jsonEncode({'type': 'ping'}));
+      } catch (_) {
+        _scheduleReconnect();
+      }
+    });
+  }
+
+  /// 화면이 다시 앞으로 나왔을 때처럼, 연결이 살아 있는지 확실치 않은
+  /// 시점에 부른다. 끊겨 있으면 바로 다시 붙는다.
+  void ensureConnected() {
+    if (_isDisposed) return;
+    if (_channel == null || _channel!.closeCode != null) {
+      _reconnectTimer?.cancel();
+      _doConnect();
+    }
+  }
+
   void _scheduleReconnect() {
     if (_isDisposed) return;
+    _heartbeatTimer?.cancel();
     if (_reconnectAttempts >= _maxReconnectAttempts) return;
     _reconnectAttempts++;
     _reconnectTimer?.cancel();
@@ -143,6 +175,7 @@ class WebSocketService {
   void dispose() {
     _isDisposed = true;
     _reconnectTimer?.cancel();
+    _heartbeatTimer?.cancel();
     _channel?.sink.close();
     _controller.close();
   }

@@ -116,28 +116,43 @@ async def request_track_separation(
 
 @router.get("/api/track/{job_id}/list")
 async def get_track_list(job_id: str):
-    """
-    분리 트랙 목록 조회 API
-    - UC-13, FR-10
-    - job_id로 분리된 4개 트랙 목록 반환
+    """분리 결과 조회.
+
+    분리가 끝났다는 알림은 Redis pub/sub 으로 나가는데, 그건 재전송이 없다.
+    앱의 WebSocket 이 잠깐이라도 끊겨 있으면 그 사이 지나간 알림은 영영
+    사라지고, 앱은 끝난 줄 모른 채 계속 기다리게 된다.
+
+    그래서 이 API 는 알림에 실려 나가는 것과 같은 것을 돌려준다. 앱이
+    "그래서 어떻게 됐냐"고 물어볼 수 있어야 한다.
+
+    - status: 진행 상태 (pending / done / failed)
+    - tracks: 원본 wav 주소
+    - streams: 재생용 mp3 주소 (변환에 실패한 트랙은 빠진다)
+    - analysis_url: 파형·키·코드 분석 결과
     """
     conn = None
     try:
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-        # analysis_job 존재 여부 확인
-        cur.execute("SELECT id, status FROM analysis_job WHERE id = %s", (job_id,))
+        cur.execute(
+            "SELECT id, room_id, status FROM analysis_job WHERE id = %s",
+            (job_id,)
+        )
         job = cur.fetchone()
         if not job:
             return {"status": 404, "message": "존재하지 않는 작업입니다."}
+
+        # 아직 도는 중이어도 200 으로 답한다. 앱은 이 값을 보고 계속 기다릴지
+        # 결정하면 된다. 400 으로 던지면 오류인지 진행 중인지 구분이 어렵다.
         if job['status'] != 'done':
             return {
-                "status": 400,
-                "message": f"분리 작업이 아직 완료되지 않았습니다. 현재 상태: {job['status']}"
+                "status": 200,
+                "job_id": job_id,
+                "job_status": job['status'],
+                "tracks": [],
             }
 
-        # 분리 트랙 목록 조회
         cur.execute(
             "SELECT id, track_type, file_url, created_at FROM separated_track WHERE job_id = %s",
             (job_id,)
@@ -145,9 +160,30 @@ async def get_track_list(job_id: str):
         tracks = cur.fetchall()
         cur.close()
 
+        # 재생용 mp3 는 wav 와 같은 자리에 확장자만 다르게 있다. DB 에 따로
+        # 담지 않으므로 파일이 실제로 있는지 보고 넣는다.
+        streams = {}
+        for t in tracks:
+            mp3_rel = os.path.splitext(t['file_url'])[0] + ".mp3"
+            try:
+                if os.path.exists(local_upload_path(mp3_rel)):
+                    streams[t['track_type']] = normalize_public_url(mp3_rel)
+            except Exception:
+                pass
+
+        analysis_rel = f"/uploads/separated/{job_id}/analysis.json"
+        analysis_url = None
+        try:
+            if os.path.exists(local_upload_path(analysis_rel)):
+                analysis_url = normalize_public_url(analysis_rel)
+        except Exception:
+            pass
+
         return {
             "status": 200,
             "job_id": job_id,
+            "job_status": job['status'],
+            "room_id": str(job['room_id']),
             "tracks": [
                 {
                     "track_id": str(t['id']),
@@ -156,7 +192,9 @@ async def get_track_list(job_id: str):
                     "created_at": str(t['created_at'])
                 }
                 for t in tracks
-            ]
+            ],
+            "streams": streams,
+            "analysis_url": analysis_url,
         }
     except Exception as e:
         return {"status": 500, "message": f"트랙 목록 조회 중 오류가 발생했습니다: {str(e)}"}

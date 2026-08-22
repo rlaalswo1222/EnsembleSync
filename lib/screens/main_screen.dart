@@ -37,7 +37,7 @@ class MainScreen extends StatefulWidget {
   State<MainScreen> createState() => _MainScreenState();
 }
 
-class _MainScreenState extends State<MainScreen> {
+class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   static const _primary = AppColors.ink;
 
   late final WebSocketService _ws;
@@ -102,8 +102,18 @@ class _MainScreenState extends State<MainScreen> {
   List<Stroke> get _strokes => _strokesForPage(_currentPdfPage);
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    // 화면이 꺼져 있는 동안 연결이 끊기곤 한다. 돌아오면 확인해서 다시 붙는다.
+    if (state == AppLifecycleState.resumed) {
+      _ws.ensureConnected();
+    }
+  }
+
+  @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _ws = WebSocketService(roomId: widget.roomId, nickname: widget.nickname);
     _participants.add({'name': widget.nickname});
 
@@ -134,6 +144,7 @@ class _MainScreenState extends State<MainScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     unawaited(_pdfDocument?.close() ?? Future<void>.value());
     _ws.dispose();
     super.dispose();
@@ -202,31 +213,9 @@ class _MainScreenState extends State<MainScreen> {
           }
           break;
         case WsEventType.trackSeparated:
-          final payload = event.data['payload'] as Map<String, dynamic>? ?? {};
-          final tracksJson = payload['tracks'] as Map<String, dynamic>? ?? {};
-          // 재생용 mp3. 변환에 실패한 트랙은 여기에 없고 wav 로 재생된다.
-          final streamsJson = payload['streams'] as Map<String, dynamic>? ?? {};
-          final results = <TrackResult>[
-            for (final entry in _stemLabels.entries)
-              if (tracksJson[entry.key] != null)
-                TrackResult(
-                  label: entry.value.$1,
-                  url: tracksJson[entry.key] as String,
-                  streamUrl: streamsJson[entry.key] as String?,
-                  icon: entry.value.$2,
-                ),
-          ];
-          if (mounted) {
-            setState(() {
-              _tracks = results;
-              // 분석이 실패한 곡이면 null 로 온다. 그때는 파형/코드 없이 재생만 된다.
-              _analysisUrl = payload['analysis_url'] as String?;
-              _bpmPending = true;
-              _bpmResult = null;
-              _preferredResultMode = ResultMode.track;
-              _tabIndex = 2;
-            });
-          }
+          applySeparationPayload(
+            event.data['payload'] as Map<String, dynamic>? ?? {},
+          );
           break;
         case WsEventType.bpmAnalyzed:
           final jobId = event.data['job_id'] as String?;
@@ -739,6 +728,37 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
+  /// 분리 결과를 화면에 얹는다.
+  ///
+  /// WebSocket 알림으로 오는 길과, 그 알림을 놓쳐서 직접 물어본 길이 있다.
+  /// 둘 다 같은 모양의 payload 를 주므로 처리도 한 곳에서 한다.
+  void applySeparationPayload(Map<String, dynamic> payload) {
+    final tracksJson = payload['tracks'] as Map<String, dynamic>? ?? {};
+    // 재생용 mp3. 변환에 실패한 트랙은 여기에 없고 wav 로 재생된다.
+    final streamsJson = payload['streams'] as Map<String, dynamic>? ?? {};
+    final results = <TrackResult>[
+      for (final entry in _stemLabels.entries)
+        if (tracksJson[entry.key] != null)
+          TrackResult(
+            label: entry.value.$1,
+            url: tracksJson[entry.key] as String,
+            streamUrl: streamsJson[entry.key] as String?,
+            icon: entry.value.$2,
+          ),
+    ];
+    if (results.isEmpty || !mounted) return;
+
+    setState(() {
+      _tracks = results;
+      // 분석이 실패한 곡이면 null 로 온다. 그때는 파형/코드 없이 재생만 된다.
+      _analysisUrl = payload['analysis_url'] as String?;
+      _bpmPending = true;
+      _bpmResult = null;
+      _preferredResultMode = ResultMode.track;
+      _tabIndex = 2;
+    });
+  }
+
   Widget _buildHeader() {
     return RoomHeader(
       roomCode: widget.roomCode,
@@ -822,6 +842,7 @@ class _MainScreenState extends State<MainScreen> {
             _preferredResultMode = ResultMode.track;
             _tabIndex = 2;
           }),
+          onSeparationRecovered: applySeparationPayload,
           onBpmJobId: (jobId) {
             setState(() => _bpmJobId = jobId);
             _loadBpmResult(jobId);

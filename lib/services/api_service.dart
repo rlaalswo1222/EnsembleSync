@@ -208,6 +208,29 @@ class ApiService {
     throw ApiException(response.statusCode, _parseError(response.body));
   }
 
+  /// 분리 결과를 직접 물어본다.
+  ///
+  /// 완료 알림은 WebSocket 으로만 오는데, 그건 재전송이 없다. 연결이 잠깐
+  /// 끊긴 사이에 지나가면 앱은 끝난 줄 모른 채 계속 기다리게 된다.
+  /// 분석이 도는 동안 이걸로 확인해서 그런 상태를 벗어난다.
+  ///
+  /// 아직 도는 중이면 job_status 가 'done' 이 아니고 tracks 는 비어 있다.
+  Future<Map<String, dynamic>> getTrackList(String jobId) async {
+    final uri = Uri.parse('${ApiConstants.baseUrl}/api/track/$jobId/list');
+    final response = await _client
+        .get(uri, headers: _headers)
+        .timeout(const Duration(seconds: 10));
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      if (data['status'] == 200) return data;
+      throw ApiException(
+        data['status'] as int? ?? 500,
+        data['message'] as String? ?? '트랙 목록 조회 실패',
+      );
+    }
+    throw ApiException(response.statusCode, _parseError(response.body));
+  }
+
   Future<void> cancelAnalysis(String jobId) async {
     final uri = Uri.parse('${ApiConstants.baseUrl}/api/analysis/$jobId/cancel');
     await _client
