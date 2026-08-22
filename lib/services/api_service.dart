@@ -248,6 +248,27 @@ class ApiService {
     throw ApiException(response.statusCode, _parseError(response.body));
   }
 
+  /// 이 방에 이미 있는 음원과 분석 결과.
+  ///
+  /// 완료 알림은 WebSocket 으로만 오고 지나가면 끝이다. 나중에 들어온
+  /// 사람은 서버에 자료가 멀쩡히 있어도 빈 화면을 본다. 들어올 때 한 번
+  /// 물어서 채운다.
+  Future<Map<String, dynamic>> getRoomLatest(String roomId) async {
+    final uri = Uri.parse('${ApiConstants.baseUrl}/api/room/$roomId/latest');
+    final response = await _client
+        .get(uri, headers: _headers)
+        .timeout(const Duration(seconds: 10));
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      if (data['status'] == 200) return data;
+      throw ApiException(
+        data['status'] as int? ?? 500,
+        data['message'] as String? ?? '방 자료 조회 실패',
+      );
+    }
+    throw ApiException(response.statusCode, _parseError(response.body));
+  }
+
   /// 정리 기한을 지금부터 다시 센다.
   Future<Map<String, dynamic>> keepRoom(String roomId) async {
     final uri = Uri.parse('${ApiConstants.baseUrl}/api/room/$roomId/keep');

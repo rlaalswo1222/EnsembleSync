@@ -14,6 +14,7 @@ from config import (
     ROOM_WARN_WITHIN_DAYS,
     SEPARATED_DIR,
     local_upload_path,
+    normalize_public_url,
 )
 from database import get_db
 
@@ -132,6 +133,109 @@ async def keep_room(room_id: str):
         if conn:
             conn.rollback()
         return {"status": 500, "message": f"보관 연장 실패: {e}"}
+    finally:
+        if conn:
+            conn.close()
+
+
+@router.get("/api/room/{room_id}/latest")
+async def get_room_latest(room_id: str):
+    """이 방에 이미 있는 음원과 분석 결과.
+
+    악보와 필기는 방에 들어올 때 API 로 불러오는데, 음원과 분석 결과는
+    WebSocket 알림으로만 왔다. 알림은 지나가면 끝이라 나중에 들어온 사람은
+    빈 화면을 본다. 서버에는 멀쩡히 있는데 볼 길이 없었다.
+
+    분리 완료 알림과 같은 모양으로 돌려준다. 앱이 두 경로를 같은 코드로
+    처리할 수 있어야 한다.
+    """
+    conn = None
+    try:
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        result = {"status": 200, "room_id": room_id}
+
+        # 가장 최근에 올라온 음원
+        cur.execute(
+            """
+            SELECT id::text, file_url, file_type
+            FROM audio_file WHERE room_id = %s
+            ORDER BY uploaded_at DESC LIMIT 1
+            """,
+            (room_id,),
+        )
+        audio = cur.fetchone()
+        if audio:
+            result["audio"] = {
+                "audio_file_id": audio["id"],
+                "file_url": normalize_public_url(audio["file_url"]),
+                "file_type": audio["file_type"],
+            }
+
+        # 가장 최근에 끝난 분리
+        cur.execute(
+            """
+            SELECT aj.id::text AS job_id
+            FROM analysis_job aj
+            WHERE aj.room_id = %s AND aj.job_type = 'separation'
+              AND aj.status = 'done'
+            ORDER BY aj.completed_at DESC LIMIT 1
+            """,
+            (room_id,),
+        )
+        job = cur.fetchone()
+        if job:
+            job_id = job["job_id"]
+            cur.execute(
+                "SELECT track_type, file_url FROM separated_track "
+                "WHERE job_id = %s",
+                (job_id,),
+            )
+            tracks, streams = {}, {}
+            for row in cur.fetchall():
+                wav = row["file_url"]
+                tracks[row["track_type"]] = normalize_public_url(wav)
+                mp3 = os.path.splitext(wav)[0] + ".mp3"
+                try:
+                    if os.path.exists(local_upload_path(mp3)):
+                        streams[row["track_type"]] = normalize_public_url(mp3)
+                except Exception:
+                    pass
+
+            if tracks:
+                analysis_rel = f"/uploads/separated/{job_id}/analysis.json"
+                analysis_url = None
+                try:
+                    if os.path.exists(local_upload_path(analysis_rel)):
+                        analysis_url = normalize_public_url(analysis_rel)
+                except Exception:
+                    pass
+                result["separation"] = {
+                    "room_id": room_id,
+                    "job_id": job_id,
+                    "tracks": tracks,
+                    "streams": streams,
+                    "analysis_url": analysis_url,
+                }
+
+        # 가장 최근에 끝난 BPM
+        cur.execute(
+            """
+            SELECT id::text FROM analysis_job
+            WHERE room_id = %s AND job_type = 'bpm' AND status = 'done'
+            ORDER BY completed_at DESC LIMIT 1
+            """,
+            (room_id,),
+        )
+        bpm = cur.fetchone()
+        if bpm:
+            result["bpm_job_id"] = bpm["id"]
+
+        cur.close()
+        return result
+    except Exception as e:
+        return {"status": 500, "message": f"방 자료 조회 실패: {e}"}
     finally:
         if conn:
             conn.close()

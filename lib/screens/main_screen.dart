@@ -150,6 +150,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       _listenWebSocket();
     });
     _loadRoomStatus();
+    _restoreRoomContents();
   }
 
   @override
@@ -766,6 +767,43 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       _preferredResultMode = ResultMode.track;
       _tabIndex = 2;
     });
+  }
+
+  /// 방에 이미 있던 음원과 분석 결과를 불러온다.
+  ///
+  /// 악보와 필기는 원래 API 로 복원하는데 음원과 분석은 WebSocket 알림에만
+  /// 기대고 있었다. 알림은 지나가면 끝이라 나중에 들어온 사람은 빈 화면을
+  /// 봤다. 서버에는 있는데 볼 길이 없었던 셈이다.
+  Future<void> _restoreRoomContents() async {
+    if (widget.roomId.isEmpty) return;
+    try {
+      final data = await ApiService().getRoomLatest(widget.roomId);
+      if (!mounted) return;
+
+      final audio = data['audio'] as Map<String, dynamic>?;
+      if (audio != null) {
+        setState(() => _audioUrl = audio['file_url'] as String?);
+      }
+
+      final separation = data['separation'] as Map<String, dynamic>?;
+      if (separation != null) {
+        // 알림으로 올 때와 같은 모양이라 같은 길로 처리한다.
+        applySeparationPayload(separation);
+        // 복원은 새 분석이 아니다. BPM 을 기다리는 표시를 띄우면 안 된다.
+        setState(() {
+          _bpmPending = false;
+          _tabIndex = 0;
+        });
+      }
+
+      final bpmJobId = data['bpm_job_id'] as String?;
+      if (bpmJobId != null) {
+        setState(() => _bpmJobId = bpmJobId);
+        _loadBpmResult(bpmJobId);
+      }
+    } catch (_) {
+      // 복원에 실패해도 방은 쓸 수 있다. 새로 분석하면 채워진다.
+    }
   }
 
   Future<void> _loadRoomStatus() async {
