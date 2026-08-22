@@ -24,7 +24,8 @@ def bpm_analysis_task(self, job_id: str, audio_file_id: str):
 
         # 큐 대기와 실제 실행을 구분한다. track_separate 와 같은 이유.
         cur.execute(
-            "UPDATE analysis_job SET status = 'processing' WHERE id = %s",
+            "UPDATE analysis_job SET status = 'processing', "
+            "started_at = now() WHERE id = %s",
             (job_id,),
         )
         conn.commit()

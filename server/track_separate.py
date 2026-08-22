@@ -38,7 +38,8 @@ def _mark_processing(job_id: str):
         conn = get_db()
         cur = conn.cursor()
         cur.execute(
-            "UPDATE analysis_job SET status = 'processing' WHERE id = %s",
+            "UPDATE analysis_job SET status = 'processing', "
+            "started_at = now() WHERE id = %s",
             (job_id,),
         )
         conn.commit()

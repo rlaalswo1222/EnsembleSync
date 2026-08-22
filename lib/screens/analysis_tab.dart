@@ -80,6 +80,14 @@ class _AnalysisTabState extends State<AnalysisTab> {
   Timer? _pollTimer;
   static const _pollInterval = Duration(seconds: 12);
 
+  /// 내 앞에 남은 작업 수와 대략 남은 시간.
+  ///
+  /// 서버가 한 번에 한 곡만 돌리므로, 몇 분이 걸릴지는 내 곡 길이가 아니라
+  /// 앞에 몇 명이 있느냐로 정해진다. 그것을 알려주지 않으면 진행률 0% 를
+  /// 보며 고장 났다고 여기게 된다.
+  int? _queuePosition;
+  int? _etaSeconds;
+
   String get _phaseLabel => switch (_phase) {
         _Phase.separating => '트랙 분리 중',
         _Phase.bpm => 'BPM 분석 중',
@@ -115,6 +123,10 @@ class _AnalysisTabState extends State<AnalysisTab> {
     if (jobId == null || !mounted) return;
 
     try {
+      // 큐에서 기다리는 동안에는 이쪽이 유일한 소식통이다. 분리가 시작되기
+      // 전에는 진행률 알림조차 오지 않는다.
+      unawaited(_pollQueue(jobId));
+
       final data = await ApiService().getTrackList(jobId);
       if (!mounted || _trackJobId != jobId) return;
 
@@ -143,6 +155,29 @@ class _AnalysisTabState extends State<AnalysisTab> {
     } catch (_) {
       // 한 번 실패해도 다음 차례에 다시 묻는다.
     }
+  }
+
+  Future<void> _pollQueue(String jobId) async {
+    try {
+      final data = await ApiService().getAnalysisStatus(jobId);
+      if (!mounted || _trackJobId != jobId) return;
+      setState(() {
+        _queuePosition = (data['queue_position'] as num?)?.toInt();
+        _etaSeconds = (data['eta_seconds'] as num?)?.toInt();
+      });
+    } catch (_) {
+      // 순번을 못 받아도 분석은 돈다.
+    }
+  }
+
+  /// '약 12분' 처럼 사람이 읽는 형태. 초 단위까지 보여줄 이유가 없다.
+  static String _etaLabel(int seconds) {
+    if (seconds < 60) return '1분 이내';
+    final minutes = (seconds / 60).ceil();
+    if (minutes < 60) return '약 $minutes분';
+    final hours = minutes ~/ 60;
+    final rest = minutes % 60;
+    return rest == 0 ? '약 $hours시간' : '약 $hours시간 $rest분';
   }
 
   /// 분리가 끝났을 때 공통으로 하는 일. 알림으로 왔든 물어서 알았든 같다.
@@ -411,6 +446,8 @@ class _AnalysisTabState extends State<AnalysisTab> {
       _trackJobId = null;
       _log.clear();
       _lastStage = null;
+      _queuePosition = null;
+      _etaSeconds = null;
       _log.add('분석 요청을 보내는 중');
     });
     try {
@@ -434,6 +471,28 @@ class _AnalysisTabState extends State<AnalysisTab> {
         setState(() => _trackJobId = jobId);
         _startPolling();
       }
+    } on ApiException catch (e) {
+      // 이미 그 방에서 분석이 돌고 있다. 실패가 아니라 그 작업에 붙으면 된다.
+      final runningId = e.data?['job_id'] as String?;
+      if (e.statusCode == 409 && runningId != null && mounted) {
+        setState(() {
+          _trackJobId = runningId;
+          _log.add('이미 진행 중인 분석에 연결했습니다');
+          _lastStage = 'attached';
+        });
+        _startPolling();
+        unawaited(_pollQueue(runningId));
+        return;
+      }
+      if (mounted) {
+        setState(() {
+          _state = AnalysisState.idle;
+          _phase = _Phase.none;
+          _trackProgress = 0.0;
+          _trackJobId = null;
+        });
+        _showError(e.userMessage);
+      }
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -442,7 +501,7 @@ class _AnalysisTabState extends State<AnalysisTab> {
           _trackProgress = 0.0;
           _trackJobId = null;
         });
-        _showError('분석 요청 실패: $e');
+        _showError('분석을 시작하지 못했습니다. 잠시 후 다시 시도해주세요.');
       }
     }
   }
@@ -803,9 +862,38 @@ class _AnalysisTabState extends State<AnalysisTab> {
           overflow: TextOverflow.ellipsis,
           style: const TextStyle(fontSize: 12, color: AppColors.inkSecondary),
         ),
+        _buildQueueLine(),
         const SizedBox(height: AppSpace.lg),
         _buildLog(),
       ],
+    );
+  }
+
+  /// 대기 순번과 남은 시간.
+  ///
+  /// 서버가 한 번에 한 곡만 돌린다는 사실을 화면이 감추면, 사용자는 자기
+  /// 곡이 오래 걸린다고 오해한다.
+  Widget _buildQueueLine() {
+    final position = _queuePosition;
+    final eta = _etaSeconds;
+    if (position == null && eta == null) return const SizedBox.shrink();
+
+    final parts = <String>[
+      if (position != null && position > 0) '앞에 $position개 대기',
+      if (eta != null && eta > 0) _etaLabel(eta),
+    ];
+    if (parts.isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Text(
+        parts.join(' · '),
+        style: const TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          color: AppColors.inkBody,
+        ),
+      ),
     );
   }
 
