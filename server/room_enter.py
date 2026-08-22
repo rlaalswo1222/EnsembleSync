@@ -1,6 +1,8 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
+import psycopg2
 import psycopg2.extras
+from config import touch_room
 from database import get_db
 
 router = APIRouter()
@@ -41,6 +43,7 @@ async def join_room(request: RoomJoinRequest):
             (room['id'], member_id)
         )
 
+        touch_room(cur, room['id'])
         conn.commit()
         cur.close()
         return {"status": 200, "room_name": room['name'], "room_id": str(room['id']), "message": "입장에 성공했습니다."}

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, UploadFile, File
 import psycopg2.extras
 from database import get_db
-from config import REDIS_HOST, REDIS_PORT
+from config import REDIS_HOST, REDIS_PORT, touch_room
 import uuid
 import shutil
 import os
@@ -54,6 +54,7 @@ async def upload_score(room_id: str, file: UploadFile = File(...)):
             "INSERT INTO score (id, room_id, uploaded_by, file_url, file_type) VALUES (%s, %s, %s, %s, %s)",
             (score_id, room_id, room['created_by'], file_url, ext)
         )
+        touch_room(cur, room_id)
         conn.commit()
         cur.close()
 

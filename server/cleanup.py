@@ -3,11 +3,12 @@
 분리 트랙은 작업당 약 18MB 씩 쌓이는데 지우는 로직이 없어 디스크를 계속
 잠식한다. 원본 음원만 있으면 다시 만들 수 있으므로 오래된 것부터 지운다.
 
-네 가지를 정리한다.
+다섯 가지를 정리한다.
   1) 끊어진 레코드 — DB 에는 있는데 파일이 없는 것
   2) 보관 기간이 지난 결과물 — 단 방마다 최신 1건은 남긴다
   3) 고아 디렉터리 — DB 레코드 없이 남은 것 (실패한 작업이 남긴다)
   4) 멈춘 작업 — pending 인 채로 오래 남은 것
+  5) 빈 방 — 만들고 아무것도 하지 않은 채 버려진 것
 
 bpm_analyze 는 "그 방의 가장 최근 분리"의 드럼 트랙을 쓴다. 그래서 방마다
 최신 1건은 기간이 지나도 남긴다(2). 다만 파일이 이미 없는 레코드는 남겨봐야
@@ -18,10 +19,13 @@ import shutil
 from datetime import datetime, timedelta
 
 from celery_app import celery_app
+from config import ROOM_INACTIVE_DAYS, SEPARATED_DIR, SEPARATED_RETENTION_DAYS
 from database import get_db
 
-SEPARATED_DIR = "uploads/separated"
-RETENTION_DAYS = int(os.getenv("SEPARATED_RETENTION_DAYS", "30"))
+# 정리 기준을 "작업이 만들어진 날짜" 가 아니라 "방이 마지막으로 쓰인 날짜"
+# 로 잡는다. 40일째 계속 쓰고 있는 방의 결과가 사라지면 안 되고, 반대로
+# 만든 지 하루 만에 버려진 방을 오래 들고 있을 이유도 없다.
+RETENTION_DAYS = SEPARATED_RETENTION_DAYS
 ORPHAN_GRACE_HOURS = 24  # 진행 중인 작업을 지우지 않도록 하루는 봐준다
 
 # 멈춘 작업을 판정하는 기준.
@@ -39,6 +43,15 @@ ORPHAN_GRACE_HOURS = 24  # 진행 중인 작업을 지우지 않도록 하루는
 # 가장 오래 걸린 분리가 7분이었다.
 STALE_PROCESSING_HOURS = 2
 STALE_PENDING_HOURS = 24
+
+# 만들고 이만큼 아무것도 안 한 방은 지운다.
+#
+# 방 코드는 여섯 자리뿐이다. 만들다 만 방이 계속 쌓이면 언젠가 뽑을 코드가
+# 마른다. 디스크보다 이쪽이 먼저 걸릴 수 있다.
+#
+# 넉넉히 잡는다. 방을 만들어 두고 다음 날 곡을 올리는 것은 이상한 일이
+# 아니다. 반대로 하루 넘게 아무 일도 없었다면 잘못 만든 방일 가능성이 크다.
+EMPTY_ROOM_HOURS = int(os.getenv("EMPTY_ROOM_HOURS", "48"))
 
 
 def _job_dir(job_id: str) -> str:
@@ -63,26 +76,45 @@ def _dangling(cur):
 
 
 def _expired(cur, retention_days: int):
-    """기간이 지난 작업. 파일이 살아있는 것 중에서만 고르고,
-    방마다 최신 1건은 제외한다."""
+    """지울 분리 결과를 고른다.
+
+    방이 살아 있는지에 따라 기준이 다르다.
+
+      쉬는 방   전부 지운다. 최신 1건도 남기지 않는다.
+      쓰는 방   오래된 것만 지우고 최신 1건은 남긴다.
+
+    최신 1건을 남기는 이유는 BPM 분석이 "그 방의 가장 최근 분리" 의 드럼
+    트랙을 쓰기 때문이다. 쉬는 방에는 BPM 을 돌릴 일이 없으므로 남길
+    이유도 없다.
+
+    원본 음원은 건드리지 않는다. 전체 사용량의 12% 뿐이고, 사용자가 올린
+    것이라 다시 만들 수 없다. 분리 결과는 원본만 있으면 다시 만든다.
+    """
     cur.execute(
         """
-        SELECT DISTINCT st.job_id::text, aj.room_id::text, aj.completed_at
+        SELECT DISTINCT st.job_id::text, aj.room_id::text, aj.completed_at,
+               r.last_active_at
         FROM separated_track st
         JOIN analysis_job aj ON aj.id = st.job_id
+        JOIN room r ON r.id = aj.room_id
         WHERE aj.completed_at IS NOT NULL
         ORDER BY aj.room_id::text, aj.completed_at DESC
         """
     )
     rows = [r for r in cur.fetchall() if os.path.isdir(_job_dir(r[0]))]
 
-    cutoff = datetime.now() - timedelta(days=retention_days)
+    job_cutoff = datetime.now() - timedelta(days=retention_days)
+    room_cutoff = datetime.now() - timedelta(days=ROOM_INACTIVE_DAYS)
+
     seen_rooms, expired = set(), []
-    for job_id, room_id, completed_at in rows:
-        if room_id not in seen_rooms:   # 방의 최신 1건은 보존
+    for job_id, room_id, completed_at, last_active_at in rows:
+        if last_active_at < room_cutoff:
+            expired.append(job_id)      # 쉬는 방은 최신도 남기지 않는다
+            continue
+        if room_id not in seen_rooms:   # 쓰는 방의 최신 1건은 보존
             seen_rooms.add(room_id)
             continue
-        if completed_at < cutoff:
+        if completed_at < job_cutoff:
             expired.append(job_id)
     return expired
 
@@ -125,6 +157,31 @@ def _fail_stale_jobs(cur) -> int:
     return cur.rowcount
 
 
+def _delete_empty_rooms(cur) -> int:
+    """만들고 아무것도 하지 않은 방을 지운다.
+
+    "비었다" 는 음원도 악보도 분석 기록도 없다는 뜻이다. 참가자는 세지
+    않는다 — 빈 방에 들어갔다 나온 것뿐이라 지울 이유가 되지 않는다.
+
+    room_participant, score, audio_file 은 방을 지우면 함께 지워진다.
+    analysis_job 에는 ON DELETE CASCADE 가 없는데, 여기서는 그것이
+    안전장치로 작동한다. 분석 기록이 있는 방을 실수로 골랐다면 삭제가
+    실패하고, 그 방은 그대로 남는다.
+    """
+    cur.execute(
+        """
+        DELETE FROM room r
+        WHERE r.created_at < now() - make_interval(hours => %s)
+          AND r.last_active_at < now() - make_interval(hours => %s)
+          AND NOT EXISTS (SELECT 1 FROM audio_file   a WHERE a.room_id = r.id)
+          AND NOT EXISTS (SELECT 1 FROM score        s WHERE s.room_id = r.id)
+          AND NOT EXISTS (SELECT 1 FROM analysis_job j WHERE j.room_id = r.id)
+        """,
+        (EMPTY_ROOM_HOURS, EMPTY_ROOM_HOURS),
+    )
+    return cur.rowcount
+
+
 @celery_app.task(name="tasks.cleanup_separated")
 def cleanup_separated(retention_days: int = None, dry_run: bool = False):
     days = RETENTION_DAYS if retention_days is None else int(retention_days)
@@ -135,6 +192,7 @@ def cleanup_separated(retention_days: int = None, dry_run: bool = False):
         expired = _expired(cur, days)
         orphans = _orphans(cur)
         stale = 0 if dry_run else _fail_stale_jobs(cur)
+        empty_rooms = 0 if dry_run else _delete_empty_rooms(cur)
 
         freed = 0
         for job_id in expired + orphans:
@@ -158,10 +216,12 @@ def cleanup_separated(retention_days: int = None, dry_run: bool = False):
             "status": "success",
             "dry_run": dry_run,
             "retention_days": days,
+            "room_inactive_days": ROOM_INACTIVE_DAYS,
             "dangling_records": len(dangling),
             "expired_jobs": len(expired),
             "orphan_dirs": len(orphans),
             "stale_jobs_failed": stale,
+            "empty_rooms_deleted": empty_rooms,
             "freed_mb": round(freed / 1024 / 1024, 1),
         }
     except Exception as e:

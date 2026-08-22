@@ -26,10 +26,17 @@ CREATE TABLE room (
     name        VARCHAR(100) NOT NULL,
     created_by  UUID        NOT NULL REFERENCES member(id),
     created_at  TIMESTAMP   NOT NULL DEFAULT now(),
+    -- 마지막으로 이 방에서 무언가 일어난 시각.
+    --
+    -- 정리 기준으로 쓴다. "전원이 나갔다" 를 신호로 삼으면 안 된다.
+    -- 화면만 꺼도 WebSocket 이 끊기므로 잠깐 자리를 비운 것과 구분되지
+    -- 않는다. 입장·업로드·분석·악보 같은 실제 행위만 센다.
+    last_active_at TIMESTAMP NOT NULL DEFAULT now(),
     is_active   BOOLEAN     NOT NULL DEFAULT true
 );
 
 CREATE INDEX idx_room_code ON room(room_code);
+CREATE INDEX idx_room_last_active ON room(last_active_at);
 
 -- ============================================================
 -- 3. RoomParticipant (방 참여)

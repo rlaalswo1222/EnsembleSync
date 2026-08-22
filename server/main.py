@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import room_create
 import room_enter
+import room_status
 import audio_upload
 import audio_analysis
 import track_download
@@ -30,6 +31,7 @@ app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 app.include_router(room_create.router)
 app.include_router(room_enter.router)
+app.include_router(room_status.router)
 app.include_router(audio_upload.router)
 app.include_router(audio_analysis.router)
 app.include_router(track_download.router)

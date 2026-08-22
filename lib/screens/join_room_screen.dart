@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/api_service.dart';
+import '../services/recent_rooms.dart';
 import 'main_screen.dart';
 import '../theme/tokens.dart';
 
@@ -44,6 +45,13 @@ class _JoinRoomScreenState extends State<JoinRoomScreen> {
     try {
       final enteredCode = _codeController.text.toUpperCase();
       final result = await ApiService().joinRoom(enteredCode, widget.nickname);
+
+      await RecentRooms.remember(
+        roomId: result['room_id']?.toString() ?? '',
+        roomCode: enteredCode,
+        roomName: result['room_name']?.toString() ?? '',
+        nickname: widget.nickname,
+      );
       if (!mounted) return;
       Navigator.pushAndRemoveUntil(
         context,

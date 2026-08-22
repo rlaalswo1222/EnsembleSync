@@ -20,6 +20,20 @@ def normalize_public_url(url: str) -> str:
     return public_url(path) if path else url
 
 
+def touch_room(cur, room_id: str) -> None:
+    """방에서 무언가 일어났다고 표시한다.
+
+    정리 정책이 이 값을 본다. 실패해도 본 작업을 막지 않는다 — 활동 표시가
+    한 번 빠지는 것보다 업로드나 분석이 실패하는 쪽이 훨씬 나쁘다.
+    """
+    try:
+        cur.execute(
+            "UPDATE room SET last_active_at = now() WHERE id = %s", (room_id,)
+        )
+    except Exception:
+        pass
+
+
 def local_upload_path(url: str) -> str:
     path = urlparse(url).path.lstrip("/")
     if not path.startswith("uploads/"):
@@ -57,3 +71,19 @@ def save_upload_limited(src, dst_path: str, max_bytes: int) -> bool:
     except OSError:
         pass
     return False
+
+
+# ── 보관 정책 ────────────────────────────────────────────────
+# 정리 작업(cleanup)과 조회 API(room_status)가 같은 값을 봐야 하므로
+# 여기 둔다. 어느 한쪽에 두면 나머지가 그 모듈을 통째로 끌어오게 된다.
+
+# 활성 방 안에서 오래된 분리 결과를 지우는 기준.
+SEPARATED_RETENTION_DAYS = int(os.getenv("SEPARATED_RETENTION_DAYS", "14"))
+
+# 이만큼 아무 일도 없으면 그 방은 쉬는 것으로 본다.
+ROOM_INACTIVE_DAYS = int(os.getenv("ROOM_INACTIVE_DAYS", "30"))
+
+# 정리까지 이만큼 남았을 때부터 앱에 알린다.
+ROOM_WARN_WITHIN_DAYS = int(os.getenv("ROOM_WARN_WITHIN_DAYS", "7"))
+
+SEPARATED_DIR = "uploads/separated"
