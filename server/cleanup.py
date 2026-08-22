@@ -10,6 +10,7 @@
   4) 멈춘 작업 — pending 인 채로 오래 남은 것
   5) 빈 방 — 만들고 아무것도 하지 않은 채 버려진 것
   6) 쉬는 방 — 오래 아무 일도 없던 방. 통째로 지운다
+  7) 고아 파일 — 음원·악보 폴더에 있는데 DB 가 모르는 것
 
 bpm_analyze 는 "그 방의 가장 최근 분리"의 드럼 트랙을 쓴다. 그래서 방마다
 최신 1건은 기간이 지나도 남긴다(2). 다만 파일이 이미 없는 레코드는 남겨봐야
@@ -201,6 +202,48 @@ def _remove_upload(file_url: str) -> int:
         return 0
 
 
+def _orphan_uploads(cur) -> tuple:
+    """음원·악보 폴더에서 DB 가 모르는 파일을 지운다. (개수, 바이트)
+
+    분리 결과 폴더에는 고아 청소가 있었는데 이 둘에는 없었다. 실제로 아홉
+    개가 쌓여 있었다 — 파일은 저장됐는데 그 뒤 DB 쓰기가 실패한 흔적으로
+    보인다.
+
+    막 올라온 파일은 건드리지 않는다. 저장과 DB 쓰기 사이의 짧은 순간에
+    청소가 돌면 멀쩡한 업로드를 지우게 된다.
+    """
+    known = set()
+    for table in ("audio_file", "score"):
+        cur.execute(f"SELECT file_url FROM {table}")
+        for (file_url,) in cur.fetchall():
+            if not file_url:
+                continue
+            try:
+                known.add(os.path.normpath(local_upload_path(file_url)))
+            except Exception:
+                pass
+
+    cutoff = datetime.now() - timedelta(hours=ORPHAN_GRACE_HOURS)
+    count, freed = 0, 0
+    for folder in ("uploads/audio", "uploads/scores"):
+        if not os.path.isdir(folder):
+            continue
+        for root, _, files in os.walk(folder):
+            for name in files:
+                path = os.path.normpath(os.path.join(root, name))
+                if path in known:
+                    continue
+                try:
+                    if datetime.fromtimestamp(os.path.getmtime(path)) > cutoff:
+                        continue
+                    freed += os.path.getsize(path)
+                    os.remove(path)
+                    count += 1
+                except OSError:
+                    pass
+    return count, freed
+
+
 def _delete_inactive_rooms(cur):
     """오래 쉰 방을 통째로 지운다. (지운 방 수, 비운 바이트)
 
@@ -266,6 +309,8 @@ def cleanup_separated(retention_days: int = None, dry_run: bool = False):
         stale = 0 if dry_run else _fail_stale_jobs(cur)
         empty_rooms = 0 if dry_run else _delete_empty_rooms(cur)
         dead_rooms, room_freed = (0, 0) if dry_run else _delete_inactive_rooms(cur)
+        # 방 삭제 뒤에 돈다. 그래야 방이 남긴 것까지 같은 회차에 걷힌다.
+        orphan_files, orphan_freed = (0, 0) if dry_run else _orphan_uploads(cur)
 
         freed = 0
         for job_id in expired + orphans:
@@ -296,7 +341,10 @@ def cleanup_separated(retention_days: int = None, dry_run: bool = False):
             "stale_jobs_failed": stale,
             "empty_rooms_deleted": empty_rooms,
             "inactive_rooms_deleted": dead_rooms,
-            "freed_mb": round((freed + room_freed) / 1024 / 1024, 1),
+            "orphan_files_deleted": orphan_files,
+            "freed_mb": round(
+                (freed + room_freed + orphan_freed) / 1024 / 1024, 1
+            ),
         }
     except Exception as e:
         conn.rollback()
