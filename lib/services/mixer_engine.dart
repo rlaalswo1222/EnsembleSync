@@ -45,6 +45,13 @@ class MixerEngine extends ChangeNotifier {
   /// 키 조절 한계. ±7 을 넘어가면 실시간 피치 시프트 특유의 금속음이 든다.
   static const int maxSemitones = 7;
 
+  /// 오디오 엔진 초기화를 기다리는 한계.
+  ///
+  /// SoLoud 의 init() 은 앞선 초기화 뒤에 줄을 서는 구조라, 한 번 멈추면
+  /// 그 뒤 호출이 전부 매달린 채 영영 돌아오지 않는다. 화면에 "오디오 엔진
+  /// 준비 중" 만 떠 있게 되므로 시간을 끊고 한 번 되살려 본다.
+  static const Duration _initTimeout = Duration(seconds: 12);
+
   List<String> get order => _order;
   Duration get length => _length;
   bool get isPlaying => _isPlaying;
@@ -83,7 +90,7 @@ class MixerEngine extends ChangeNotifier {
       if (!_soloud.isInitialized) {
         _loadingLabel = '오디오 엔진 준비 중';
         _notify();
-        await _soloud.init();
+        await _initEngine();
       }
       if (_disposed) return;
 
@@ -123,6 +130,36 @@ class MixerEngine extends ChangeNotifier {
       if (!_disposed) _notify();
     }
   }
+
+  /// 엔진을 띄운다. 멈추면 한 번 내렸다가 다시 시도한다.
+  ///
+  /// 앱을 핫 리스타트하면 네이티브 쪽 엔진이 살아 있는 채로 Dart 만 새로
+  /// 시작해서 init() 이 돌아오지 않는 일이 있다. 그때는 deinit() 으로
+  /// 정리하고 다시 띄우면 살아난다.
+  Future<void> _initEngine() async {
+    try {
+      await _soloud.init().timeout(_initTimeout);
+      return;
+    } on TimeoutException {
+      _log('오디오 엔진 초기화가 ${_initTimeout.inSeconds}초를 넘겼다. 다시 시도한다.');
+    }
+
+    if (_disposed) return;
+
+    try {
+      _soloud.deinit();
+    } catch (e) {
+      _log('deinit 실패(무시): $e');
+    }
+    await _soloud.init().timeout(
+      _initTimeout,
+      onTimeout: () => throw Exception(
+        '오디오 엔진을 시작하지 못했습니다. 앱을 완전히 껐다가 다시 켜주세요.',
+      ),
+    );
+  }
+
+  void _log(String message) => debugPrint('[MixerEngine] $message');
 
   void togglePlay() => _isPlaying ? pause() : play();
 
