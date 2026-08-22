@@ -4,14 +4,15 @@ import psycopg2.extras
 from database import get_db
 from celery_app import celery_app
 from config import (
+    MAX_AUDIO_MB,
     REDIS_HOST,
     REDIS_PORT,
+    save_upload_limited,
     local_upload_path,
     normalize_public_url,
     public_url,
 )
 import uuid
-import shutil
 import os
 import json
 import redis
@@ -52,8 +53,14 @@ async def request_track_separation(
         os.makedirs(save_dir, exist_ok=True)
         file_path = f"{save_dir}/{audio_id}.{ext}"
 
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+        if not save_upload_limited(
+            file.file, file_path, MAX_AUDIO_MB * 1024 * 1024
+        ):
+            file_path = None  # 이미 지워졌다
+            return {
+                "status": 413,
+                "message": f"파일이 너무 큽니다. {MAX_AUDIO_MB}MB 이하만 올릴 수 있습니다.",
+            }
 
         # DB 에는 상대경로로 저장한다 (서버 주소가 바뀌어도 레코드 수정 불필요)
         file_url = f"/uploads/audio/{room_id}/{audio_id}.{ext}"

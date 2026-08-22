@@ -24,6 +24,22 @@ STEM_NAMES = ["vocals", "drums", "bass", "guitar", "piano", "other"]
 MP3_BITRATE = "192k"
 
 
+def _mark_processing(job_id: str):
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE analysis_job SET status = 'processing' WHERE id = %s",
+            (job_id,),
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        # 상태 표시가 안 되어도 분리 자체는 진행한다.
+        print(f"[job] processing 표시 실패: {e}")
+
+
 def _publish(room_id: str, job_id: str, stage: str, message: str,
              progress: float = None):
     """진행 상황을 방에 알린다.
@@ -87,6 +103,11 @@ def separate_audio_task(self, file_path: str, room_id: str, job_id: str):
     os.makedirs(output_base_dir, exist_ok=True)
 
     try:
+        # 큐에서 기다리는 것(pending)과 실제로 도는 것(processing)을 구분한다.
+        # 이 구분이 없으면 정리 작업이 "오래 pending" 을 죽은 작업으로 보고
+        # 큐에서 정직하게 기다리던 것까지 실패로 만든다.
+        _mark_processing(job_id)
+
         original = Path(file_path)
         tmp_dir = tempfile.mkdtemp()
         input_path = ""

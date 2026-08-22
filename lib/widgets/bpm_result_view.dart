@@ -234,6 +234,7 @@ class _BpmResultViewState extends State<BpmResultView> {
           Row(
             children: [
               GestureDetector(
+                behavior: HitTestBehavior.opaque,
                 onTap: _canPlay ? _togglePlay : null,
                 child: Container(
                   width: 36,
