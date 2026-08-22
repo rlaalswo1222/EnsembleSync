@@ -95,7 +95,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   /// 30일 내내 경고를 붙여두면 아무도 안 읽는다. 서버가 warn 을 계산해
   /// 주므로 앱은 그 값만 보고 띄울지 정한다.
   int? _daysLeft;
-  double _separatedMb = 0;
+  double _roomMb = 0;
   bool _showExpiryBanner = false;
   bool _keeping = false;
 
@@ -775,7 +775,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       if (!mounted) return;
       setState(() {
         _daysLeft = (data['days_left'] as num?)?.toInt();
-        _separatedMb = (data['separated_mb'] as num?)?.toDouble() ?? 0;
+        _roomMb = (data['total_mb'] as num?)?.toDouble() ?? 0;
         _showExpiryBanner = data['warn'] == true;
       });
     } catch (_) {
@@ -812,9 +812,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       return const SizedBox.shrink();
     }
     final days = _daysLeft!;
-    final size = _separatedMb >= 1
-        ? ' · 분석 결과 ${_separatedMb.toStringAsFixed(0)}MB'
-        : '';
+    final size = _roomMb >= 1 ? ' · ${_roomMb.toStringAsFixed(0)}MB' : '';
 
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
@@ -833,7 +831,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              days <= 0 ? '곧 분석 결과가 정리됩니다$size' : '$days일 뒤 분석 결과가 정리됩니다$size',
+              // 기한이 지나면 방이 통째로 사라진다. 결과물만 지워지는
+              // 것처럼 적으면 실제와 다르다.
+              days <= 0 ? '곧 이 방이 사라집니다$size' : '$days일 뒤 이 방이 사라집니다$size',
               style: const TextStyle(
                 fontSize: 12,
                 color: AppColors.inkBody,

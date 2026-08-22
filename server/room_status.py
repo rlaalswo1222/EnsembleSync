@@ -1,8 +1,8 @@
 """방의 보관 상태 조회와 연장.
 
-정리 정책이 방의 마지막 활동 시각을 본다. 그런데 사용자에게 그 사실이
-보이지 않으면 어느 날 갑자기 결과물이 사라진 것으로 느껴진다. 언제
-정리되는지 알려주고, 더 두고 싶으면 미룰 수 있게 한다.
+기한이 지나면 방이 통째로 사라진다. 사용자에게 그 사실이 보이지 않으면
+어느 날 갑자기 방을 잃은 것이 된다. 언제 사라지는지 알려주고, 더 두고
+싶으면 미룰 수 있게 한다.
 """
 import os
 
@@ -13,6 +13,7 @@ from config import (
     ROOM_INACTIVE_DAYS,
     ROOM_WARN_WITHIN_DAYS,
     SEPARATED_DIR,
+    local_upload_path,
 )
 from database import get_db
 
@@ -51,11 +52,11 @@ async def get_room_status(room_id: str):
         if not room:
             return {"status": 404, "message": "존재하지 않는 방입니다."}
 
-        # 이 방의 분리 결과가 차지하는 용량. 지워질 대상이 얼마나 되는지
-        # 숫자로 보여야 "정리" 라는 말이 와닿는다.
+        # 이 방이 차지하는 용량 전부. 기한이 지나면 방째로 사라지므로
+        # 분리 결과만 세면 실제로 없어지는 양보다 작게 보인다.
         cur.execute(
             """
-            SELECT DISTINCT st.job_id::text
+            SELECT DISTINCT st.job_id::text AS job_id
             FROM separated_track st
             JOIN analysis_job aj ON aj.id = st.job_id
             WHERE aj.room_id = %s
@@ -64,11 +65,23 @@ async def get_room_status(room_id: str):
         )
         used = 0
         job_count = 0
-        for (job_id,) in [(r["job_id"],) for r in cur.fetchall()]:
-            path = os.path.join(SEPARATED_DIR, job_id)
+        for row in cur.fetchall():
+            path = os.path.join(SEPARATED_DIR, row["job_id"])
             if os.path.isdir(path):
                 used += _dir_size(path)
                 job_count += 1
+
+        for table in ("audio_file", "score"):
+            cur.execute(
+                f"SELECT file_url FROM {table} WHERE room_id = %s", (room_id,)
+            )
+            for row in cur.fetchall():
+                try:
+                    fp = local_upload_path(row["file_url"])
+                    if os.path.exists(fp):
+                        used += os.path.getsize(fp)
+                except Exception:
+                    pass
         cur.close()
 
         days_left = int(room["days_left"])
@@ -82,7 +95,8 @@ async def get_room_status(room_id: str):
             # 앱은 이 값만 보고 안내를 띄울지 정하면 된다.
             "warn": days_left <= ROOM_WARN_WITHIN_DAYS,
             "separated_jobs": job_count,
-            "separated_mb": round(used / 1024 / 1024, 1),
+            # 방이 사라질 때 함께 없어지는 전체 용량.
+            "total_mb": round(used / 1024 / 1024, 1),
         }
     except Exception as e:
         return {"status": 500, "message": f"방 상태 조회 실패: {e}"}
