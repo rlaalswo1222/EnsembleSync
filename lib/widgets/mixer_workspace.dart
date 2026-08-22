@@ -421,6 +421,7 @@ class _MixerWorkspaceState extends State<MixerWorkspace> {
             ],
           ),
           GestureDetector(
+            behavior: HitTestBehavior.opaque,
             onTap: shift == 0 ? null : () => _engine.setSemitones(0),
             child: Text(
               shift == 0 ? sub : '$sub · 원키로',
@@ -600,16 +601,34 @@ class _MixerWorkspaceState extends State<MixerWorkspace> {
         return Column(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            Text(
-              current,
-              maxLines: 1,
-              overflow: TextOverflow.visible,
-              softWrap: false,
-              style: const TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-                color: AppColors.ink,
-                height: 1.1,
+            // 코드가 넘어가는 것 자체가 박자 정보다. 짧게 밀어올린다.
+            // 결과 화면은 초당 30번 다시 그려지므로 길면 재생선이 끊겨 보인다.
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 160),
+              transitionBuilder: (Widget child, Animation<double> a) {
+                return FadeTransition(
+                  opacity: a,
+                  child: SlideTransition(
+                    position: Tween<Offset>(
+                      begin: const Offset(0, 0.35),
+                      end: Offset.zero,
+                    ).animate(a),
+                    child: child,
+                  ),
+                );
+              },
+              child: Text(
+                current,
+                key: ValueKey<String>(current),
+                maxLines: 1,
+                overflow: TextOverflow.visible,
+                softWrap: false,
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.ink,
+                  height: 1.1,
+                ),
               ),
             ),
             if (next != null)
@@ -873,16 +892,43 @@ class _DownloadButton extends StatelessWidget {
   }
 }
 
-class _PlayButton extends StatelessWidget {
+/// 화면에서 가장 자주 누르는 버튼이라 두 모양이 이어지게 한다.
+class _PlayButton extends StatefulWidget {
   const _PlayButton({required this.playing, required this.onTap});
 
   final bool playing;
   final VoidCallback onTap;
 
   @override
+  State<_PlayButton> createState() => _PlayButtonState();
+}
+
+class _PlayButtonState extends State<_PlayButton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 220),
+    value: widget.playing ? 1 : 0,
+  );
+
+  @override
+  void didUpdateWidget(_PlayButton old) {
+    super.didUpdateWidget(old);
+    if (widget.playing != old.playing) {
+      widget.playing ? _controller.forward() : _controller.reverse();
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return InkResponse(
-      onTap: onTap,
+      onTap: widget.onTap,
       radius: 40,
       child: Container(
         width: 64,
@@ -891,8 +937,12 @@ class _PlayButton extends StatelessWidget {
           shape: BoxShape.circle,
           color: AppColors.ink,
         ),
-        child: Icon(
-          playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
+        // Icon 은 스스로 가운데에 그리지만 AnimatedIcon 은 그러지 않는다.
+        // 정렬을 안 주면 꽉 찬 제약을 그대로 받아 한쪽으로 쏠린다.
+        alignment: Alignment.center,
+        child: AnimatedIcon(
+          icon: AnimatedIcons.play_pause,
+          progress: _controller,
           color: AppColors.surface,
           size: 34,
         ),
