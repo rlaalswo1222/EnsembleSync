@@ -152,11 +152,11 @@ class MixerEngine extends ChangeNotifier {
       _log('deinit 실패(무시): $e');
     }
     await _soloud.init().timeout(
-      _initTimeout,
-      onTimeout: () => throw Exception(
-        '오디오 엔진을 시작하지 못했습니다. 앱을 완전히 껐다가 다시 켜주세요.',
-      ),
-    );
+          _initTimeout,
+          onTimeout: () => throw Exception(
+            '오디오 엔진을 시작하지 못했습니다. 앱을 완전히 껐다가 다시 켜주세요.',
+          ),
+        );
   }
 
   void _log(String message) => debugPrint('[MixerEngine] $message');
@@ -239,15 +239,28 @@ class MixerEngine extends ChangeNotifier {
     _notify();
   }
 
+  /// 음소거와 솔로는 한 트랙에서 동시에 켜지지 않는다.
+  ///
+  /// 솔로는 "이것만 들린다", 음소거는 "이것은 안 들린다" 라 서로 반대다.
+  /// 둘 다 켜진 상태는 뜻이 성립하지 않으므로, 하나를 켜면 다른 하나는
+  /// 꺼진다.
   void toggleMute(String id) {
-    if (!_muted.remove(id)) _muted.add(id);
+    if (!_muted.remove(id)) {
+      _muted.add(id);
+      if (_soloed == id) _soloed = null;
+    }
     _applyAllVolumes();
     _notify();
   }
 
   /// 솔로는 한 번에 하나만. 같은 트랙을 다시 누르면 해제된다.
   void toggleSolo(String id) {
-    _soloed = _soloed == id ? null : id;
+    if (_soloed == id) {
+      _soloed = null;
+    } else {
+      _soloed = id;
+      _muted.remove(id);
+    }
     _applyAllVolumes();
     _notify();
   }

@@ -1,9 +1,14 @@
 from fastapi import APIRouter, UploadFile, File
 import psycopg2.extras
 from database import get_db
-from config import REDIS_HOST, REDIS_PORT, public_url
+from config import (
+    MAX_AUDIO_MB,
+    REDIS_HOST,
+    REDIS_PORT,
+    public_url,
+    save_upload_limited,
+)
 import uuid
-import shutil
 import os
 import json
 import redis
@@ -66,8 +71,14 @@ async def upload_audio(
         os.makedirs(save_dir, exist_ok=True)
         file_path = f"{save_dir}/{audio_id}.{ext}"
 
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+        if not save_upload_limited(
+            file.file, file_path, MAX_AUDIO_MB * 1024 * 1024
+        ):
+            file_path = None  # 이미 지워졌다
+            return {
+                "status": 413,
+                "message": f"파일이 너무 큽니다. {MAX_AUDIO_MB}MB 이하만 올릴 수 있습니다.",
+            }
 
         # 5. 저장 경로 (DB 에는 상대경로로 남긴다.
         #    절대 URL 을 넣으면 서버를 옮길 때마다 모든 레코드를 고쳐야 한다.)

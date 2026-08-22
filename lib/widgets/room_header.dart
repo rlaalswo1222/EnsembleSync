@@ -50,6 +50,7 @@ class RoomHeader extends StatelessWidget {
               Tooltip(
                 message: '방 코드 공유',
                 child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
                   onTap: onShareRoom,
                   child: const Icon(Icons.share_rounded,
                       size: 16, color: AppColors.inkTertiary),

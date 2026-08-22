@@ -549,6 +549,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           children: colors.map((color) {
             final selected = color.toARGB32() == _penColor.toARGB32();
             return GestureDetector(
+              behavior: HitTestBehavior.opaque,
               onTap: () {
                 setState(() => _penColor = color);
                 Navigator.pop(context);
@@ -707,17 +708,14 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       resizeToAvoidBottomInset: false,
       body: SafeArea(
         child: Center(
+          // 폭 제한만 남긴다. 폰에서는 화면이 400 이하라 영향이 없고,
+          // 웹에서 이걸 빼면 데스크톱 폭 그대로 늘어나 못 쓰게 된다.
           child: Container(
             constraints: const BoxConstraints(maxWidth: 400),
-            height: MediaQuery.of(context).size.height * 0.95,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(24),
-            ),
+            decoration: const BoxDecoration(color: AppColors.surface),
             child: Column(
               children: [
                 _buildHeader(),
-                if (_tabIndex == 0) _buildToolBar(),
                 Expanded(child: _buildTabBody()),
                 _buildBottomBar(),
               ],
@@ -783,25 +781,23 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           _ToolButton(
             icon: Icons.edit_rounded,
             selected: _tool == DrawTool.pen,
-            color: _primary,
             onTap: () => setState(() => _tool = DrawTool.pen),
           ),
           const SizedBox(width: 4),
           _ToolButton(
             icon: Icons.highlight_rounded,
             selected: _tool == DrawTool.highlighter,
-            color: AppColors.pen[4],
             onTap: () => setState(() => _tool = DrawTool.highlighter),
           ),
           const SizedBox(width: 4),
           _ToolButton(
             icon: Icons.auto_fix_normal_rounded,
             selected: _tool == DrawTool.eraser,
-            color: _primary,
             onTap: () => setState(() => _tool = DrawTool.eraser),
           ),
           const SizedBox(width: 8),
           GestureDetector(
+            behavior: HitTestBehavior.opaque,
             onTap: _showColorPicker,
             child: Container(
               width: 32,
@@ -817,7 +813,6 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           _ToolButton(
             icon: Icons.upload_rounded,
             selected: false,
-            color: _primary,
             onTap: _showUploadSheet,
           ),
         ],
@@ -871,6 +866,15 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   }
 
   Widget _buildScoreTab() {
+    return Column(
+      children: [
+        _buildToolBar(),
+        Expanded(child: _buildScoreSurface()),
+      ],
+    );
+  }
+
+  Widget _buildScoreSurface() {
     return Padding(
       padding: const EdgeInsets.all(12),
       child: Container(
@@ -957,6 +961,10 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           final selected = entry.key == _tabIndex;
           return Expanded(
             child: GestureDetector(
+              // 기본값(deferToChild)이면 자식이 실제로 그린 픽셀에서만 탭이
+              // 먹는다. 아이콘 글리프와 글자만 살아 있고 여백은 죽어서,
+              // 조준하듯 눌러야 했다.
+              behavior: HitTestBehavior.opaque,
               onTap: () => setState(() => _tabIndex = entry.key),
               child: Container(
                 padding: const EdgeInsets.symmetric(vertical: 12),
@@ -992,29 +1000,31 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 class _ToolButton extends StatelessWidget {
   final IconData icon;
   final bool selected;
-  final Color color;
   final VoidCallback onTap;
 
   const _ToolButton({
     required this.icon,
     required this.selected,
-    required this.color,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
+    // 도구 종류와 상관없이 같은 색으로 표시한다. 도구마다 색이 다르면
+    // "선택됨" 이라는 신호가 아니라 도구의 성격처럼 읽힌다.
+    final Color tint = selected ? AppColors.ink : AppColors.inkTertiary;
+
     return GestureDetector(
+      behavior: HitTestBehavior.opaque,
       onTap: onTap,
       child: Container(
         width: 32,
         height: 32,
         decoration: BoxDecoration(
-          color: selected ? color.withValues(alpha: 0.12) : Colors.transparent,
+          color: selected ? tint.withValues(alpha: 0.12) : Colors.transparent,
           borderRadius: BorderRadius.circular(8),
         ),
-        child: Icon(icon,
-            size: 18, color: selected ? color : AppColors.inkTertiary),
+        child: Icon(icon, size: 18, color: tint),
       ),
     );
   }

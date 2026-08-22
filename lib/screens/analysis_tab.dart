@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
+import '../services/api_constants.dart';
 import '../services/api_service.dart';
 import '../services/websocket_service.dart';
 import '../theme/tokens.dart';
@@ -282,6 +283,17 @@ class _AnalysisTabState extends State<AnalysisTab> {
     if (result != null && result.files.first.bytes != null) {
       final bytes = result.files.first.bytes!;
       final filename = result.files.first.name;
+
+      // 올리기 전에 거른다. 서버도 막지만, 다 올린 뒤에 거절당하면
+      // 모바일 데이터로 수백 MB 를 헛되이 쓴 뒤가 된다.
+      if (bytes.length > ApiConstants.maxAudioBytes) {
+        _showError(
+          '${_formatBytes(bytes.length)} 파일입니다. '
+          '${ApiConstants.maxAudioMb}MB 이하만 올릴 수 있어요.',
+        );
+        return;
+      }
+
       setState(() {
         _audioBytes = bytes;
         _audioFilename = filename;
@@ -320,7 +332,7 @@ class _AnalysisTabState extends State<AnalysisTab> {
         _audioFileId = null;
         _isUploadingAudio = false;
       });
-      _showError('음원 업로드 실패: $e');
+      _showError(_uploadErrorText(e));
     }
   }
 
@@ -451,6 +463,13 @@ class _AnalysisTabState extends State<AnalysisTab> {
     }
   }
 
+  /// 예외를 그대로 찍으면 'ApiException(413): ...' 처럼 클래스 이름이
+  /// 사용자에게 노출된다. 서버가 준 문장만 꺼내 쓴다.
+  String _uploadErrorText(Object e) {
+    if (e is ApiException) return e.userMessage;
+    return '음원 업로드에 실패했습니다. 잠시 후 다시 시도해주세요.';
+  }
+
   void _showError(String msg) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(msg), backgroundColor: Colors.redAccent),
@@ -490,6 +509,7 @@ class _AnalysisTabState extends State<AnalysisTab> {
     return GestureDetector(
       // 음원이 없을 때만 카드 전체가 파일 고르기 버튼이 된다. 음원이 들어온
       // 뒤에는 안에 버튼이 생기므로 아무 데나 눌리면 오히려 방해가 된다.
+      behavior: HitTestBehavior.opaque,
       onTap: hasAudio || _isUploadingAudio ? null : _pickAudio,
       child: Padding(
         // 화면에 요소가 이것 하나뿐이라 테두리로 가둘 이유가 없다.
@@ -499,12 +519,30 @@ class _AnalysisTabState extends State<AnalysisTab> {
             Expanded(
               // Center 가 폭을 끝까지 밀어줘야 안쪽이 진짜 가운데로 온다.
               child: Center(
-                child: _state == AnalysisState.loading
-                    ? _buildAnalyzing()
-                    : (hasAudio ? _buildPickedAudio() : _buildEmptyUpload()),
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 260),
+                  child: _state == AnalysisState.loading
+                      ? KeyedSubtree(
+                          key: const ValueKey('analyzing'),
+                          child: _buildAnalyzing(),
+                        )
+                      : (hasAudio
+                          ? KeyedSubtree(
+                              key: const ValueKey('picked'),
+                              child: _buildPickedAudio(),
+                            )
+                          : KeyedSubtree(
+                              key: const ValueKey('empty'),
+                              child: _buildEmptyUpload(),
+                            )),
+                ),
               ),
             ),
-            _buildActionArea(hasAudio),
+            AnimatedSize(
+              duration: const Duration(milliseconds: 200),
+              alignment: Alignment.topCenter,
+              child: _buildActionArea(hasAudio),
+            ),
           ],
         ),
       ),
@@ -513,6 +551,18 @@ class _AnalysisTabState extends State<AnalysisTab> {
 
   /// 악보 업로드 화면과 같은 구성이다. 두 화면이 하는 일이 같은데 생김새가
   /// 다르면 탭을 옮길 때마다 다시 읽어야 한다.
+  /// 분석이 무엇을 해주는지. 업로드 버튼만 있으면 왜 올려야 하는지 알 수 없다.
+  static const _benefits = <(IconData, String, String)>[
+    (
+      Icons.graphic_eq_rounded,
+      '세션 별 음원트랙 분리',
+      '보컬 · 드럼 · 베이스 · 기타 · 피아노',
+    ),
+    (Icons.tune_rounded, '트랙별 조절', '볼륨 · 음소거 · 솔로'),
+    (Icons.piano_rounded, '키 조절', '±7 키 변경'),
+    (Icons.insights_rounded, '분석', 'BPM · 코드 진행'),
+  ];
+
   Widget _buildEmptyUpload() {
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -520,10 +570,56 @@ class _AnalysisTabState extends State<AnalysisTab> {
         const _UploadIcon(icon: Icons.upload_rounded),
         const SizedBox(height: AppSpace.lg),
         const Text(
-          '음원을 업로드하세요',
-          style: TextStyle(fontSize: 14, color: AppColors.inkSecondary),
+          '음원을 업로드하여 분석해보세요',
+          style: TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w700,
+            color: AppColors.inkBody,
+          ),
         ),
         const SizedBox(height: AppSpace.lg),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: AppSpace.sm),
+          child: Column(
+            children: [
+              for (final b in _benefits)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: AppSpace.md),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(b.$1, size: 17, color: AppColors.inkTertiary),
+                      const SizedBox(width: AppSpace.md),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              b.$2,
+                              style: const TextStyle(
+                                fontSize: AppText.footnote,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.inkBody,
+                              ),
+                            ),
+                            Text(
+                              b.$3,
+                              style: const TextStyle(
+                                fontSize: 11,
+                                color: AppColors.inkTertiary,
+                                height: 1.4,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(height: AppSpace.sm),
         ElevatedButton.icon(
           onPressed: _pickAudio,
           style: ElevatedButton.styleFrom(
@@ -542,6 +638,15 @@ class _AnalysisTabState extends State<AnalysisTab> {
           label: const Text(
             '음원 추가',
             style: TextStyle(fontWeight: FontWeight.w600),
+          ),
+        ),
+        const SizedBox(height: AppSpace.md),
+        // 고르기 전에 조건을 알려준다. 올린 뒤에 거절하는 것보다 낫다.
+        const Text(
+          'MP3 · WAV · FLAC · M4A · ${ApiConstants.maxAudioMb}MB 이하',
+          style: TextStyle(
+            fontSize: 11,
+            color: AppColors.inkTertiary,
           ),
         ),
       ],
@@ -622,12 +727,19 @@ class _AnalysisTabState extends State<AnalysisTab> {
             alignment: Alignment.center,
             children: [
               SizedBox.expand(
-                child: CircularProgressIndicator(
-                  value: hasPercent ? _trackProgress : null,
-                  strokeWidth: 10,
-                  strokeCap: StrokeCap.round,
-                  backgroundColor: AppColors.fill,
-                  valueColor: const AlwaysStoppedAnimation(_primary),
+                child: TweenAnimationBuilder<double>(
+                  tween: Tween<double>(end: hasPercent ? _trackProgress : 0),
+                  duration: const Duration(milliseconds: 600),
+                  curve: Curves.easeOut,
+                  builder: (BuildContext context, double v, _) =>
+                      CircularProgressIndicator(
+                    value: hasPercent ? v : null,
+                    strokeWidth: 10,
+                    strokeCap: StrokeCap.round,
+                    backgroundColor: AppColors.fill,
+                    // 진행은 강조색이 맡는다. 결과 화면의 재생 바와 같은 규칙.
+                    valueColor: const AlwaysStoppedAnimation(AppColors.accent),
+                  ),
                 ),
               ),
               if (hasPercent)
@@ -636,13 +748,20 @@ class _AnalysisTabState extends State<AnalysisTab> {
                   crossAxisAlignment: CrossAxisAlignment.baseline,
                   textBaseline: TextBaseline.alphabetic,
                   children: [
-                    Text(
-                      '${(_trackProgress * 100).toInt()}',
-                      style: const TextStyle(
-                        fontSize: 46,
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.ink,
-                        height: 1.0,
+                    // demucs 가 몇 퍼센트씩 건너뛰며 보고한다. 그 사이를
+                    // 채워야 숫자가 튀지 않는다.
+                    TweenAnimationBuilder<double>(
+                      tween: Tween<double>(end: _trackProgress * 100),
+                      duration: const Duration(milliseconds: 600),
+                      curve: Curves.easeOut,
+                      builder: (BuildContext context, double v, _) => Text(
+                        '${v.toInt()}',
+                        style: const TextStyle(
+                          fontSize: 46,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.ink,
+                          height: 1.0,
+                        ),
                       ),
                     ),
                     const Padding(
@@ -824,6 +943,7 @@ class _ActionButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
+      behavior: HitTestBehavior.opaque,
       onTap: onTap,
       child: Container(
         width: double.infinity,

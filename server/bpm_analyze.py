@@ -22,6 +22,13 @@ def bpm_analysis_task(self, job_id: str, audio_file_id: str):
             raise Exception("BPM 분석 작업을 찾을 수 없습니다.")
         room_id = str(row[0])
 
+        # 큐 대기와 실제 실행을 구분한다. track_separate 와 같은 이유.
+        cur.execute(
+            "UPDATE analysis_job SET status = 'processing' WHERE id = %s",
+            (job_id,),
+        )
+        conn.commit()
+
         # 2. 같은 방의 가장 최근 완료된 separation job의 드럼 트랙 조회
         cur.execute("""
             SELECT st.file_url FROM separated_track st

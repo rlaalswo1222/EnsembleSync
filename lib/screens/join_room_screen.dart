@@ -83,11 +83,7 @@ class _JoinRoomScreenState extends State<JoinRoomScreen> {
         child: Center(
           child: Container(
             constraints: const BoxConstraints(maxWidth: 400),
-            height: MediaQuery.of(context).size.height * 0.85,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(24),
-            ),
+            decoration: const BoxDecoration(color: AppColors.surface),
             child: Column(
               children: [
                 // ── AppBar ──────────────────────────────────────
@@ -116,8 +112,8 @@ class _JoinRoomScreenState extends State<JoinRoomScreen> {
                 // ── 본문 ────────────────────────────────────────
                 Expanded(
                   child: GestureDetector(
-                    onTap: () => _focusNode.requestFocus(),
                     behavior: HitTestBehavior.opaque,
+                    onTap: () => _focusNode.requestFocus(),
                     child: Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 28),
                       child: Column(
@@ -206,8 +202,6 @@ class _SixDigitInput extends StatelessWidget {
     required this.onSubmit,
   });
 
-  static const _primary = AppColors.ink;
-
   @override
   Widget build(BuildContext context) {
     return Stack(
@@ -234,6 +228,7 @@ class _SixDigitInput extends StatelessWidget {
 
         // 시각적 표시 (6칸)
         GestureDetector(
+          behavior: HitTestBehavior.opaque,
           onTap: () => focusNode.requestFocus(),
           child: AnimatedBuilder(
             animation: controller,
@@ -246,7 +241,7 @@ class _SixDigitInput extends StatelessWidget {
                 height: 64,
                 decoration: BoxDecoration(
                   border: Border.all(
-                    color: isFocused ? _primary : AppColors.inkTertiary,
+                    color: isFocused ? AppColors.ink : AppColors.inkTertiary,
                     width: isFocused ? 1.5 : 1.0,
                   ),
                   borderRadius: BorderRadius.circular(14),
