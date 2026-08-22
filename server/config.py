@@ -84,8 +84,11 @@ def save_upload_limited(src, dst_path: str, max_bytes: int) -> bool:
 # 활성 방 안에서 오래된 분리 결과를 지우는 기준.
 SEPARATED_RETENTION_DAYS = int(os.getenv("SEPARATED_RETENTION_DAYS", "14"))
 
-# 이만큼 아무 일도 없으면 그 방은 쉬는 것으로 본다.
-ROOM_INACTIVE_DAYS = int(os.getenv("ROOM_INACTIVE_DAYS", "30"))
+# 이만큼 아무 일도 없으면 그 방을 통째로 지운다.
+#
+# 분리 결과만 지우고 방을 남기는 방법도 있었지만, 그러면 한 번 쓴 방이
+# 영원히 쌓인다. 방 코드는 여섯 자리뿐이라 언젠가 마른다.
+ROOM_INACTIVE_DAYS = int(os.getenv("ROOM_INACTIVE_DAYS", "20"))
 
 # 정리까지 이만큼 남았을 때부터 앱에 알린다.
 ROOM_WARN_WITHIN_DAYS = int(os.getenv("ROOM_WARN_WITHIN_DAYS", "7"))

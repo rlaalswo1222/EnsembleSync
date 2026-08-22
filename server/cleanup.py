@@ -3,12 +3,13 @@
 분리 트랙은 작업당 약 18MB 씩 쌓이는데 지우는 로직이 없어 디스크를 계속
 잠식한다. 원본 음원만 있으면 다시 만들 수 있으므로 오래된 것부터 지운다.
 
-다섯 가지를 정리한다.
+여섯 가지를 정리한다.
   1) 끊어진 레코드 — DB 에는 있는데 파일이 없는 것
   2) 보관 기간이 지난 결과물 — 단 방마다 최신 1건은 남긴다
   3) 고아 디렉터리 — DB 레코드 없이 남은 것 (실패한 작업이 남긴다)
   4) 멈춘 작업 — pending 인 채로 오래 남은 것
   5) 빈 방 — 만들고 아무것도 하지 않은 채 버려진 것
+  6) 쉬는 방 — 오래 아무 일도 없던 방. 통째로 지운다
 
 bpm_analyze 는 "그 방의 가장 최근 분리"의 드럼 트랙을 쓴다. 그래서 방마다
 최신 1건은 기간이 지나도 남긴다(2). 다만 파일이 이미 없는 레코드는 남겨봐야
@@ -19,7 +20,12 @@ import shutil
 from datetime import datetime, timedelta
 
 from celery_app import celery_app
-from config import ROOM_INACTIVE_DAYS, SEPARATED_DIR, SEPARATED_RETENTION_DAYS
+from config import (
+    ROOM_INACTIVE_DAYS,
+    SEPARATED_DIR,
+    SEPARATED_RETENTION_DAYS,
+    local_upload_path,
+)
 from database import get_db
 
 # 정리 기준을 "작업이 만들어진 날짜" 가 아니라 "방이 마지막으로 쓰인 날짜"
@@ -80,8 +86,8 @@ def _expired(cur, retention_days: int):
 
     방이 살아 있는지에 따라 기준이 다르다.
 
-      쉬는 방   전부 지운다. 최신 1건도 남기지 않는다.
-      쓰는 방   오래된 것만 지우고 최신 1건은 남긴다.
+    쉬는 방은 여기서 다루지 않는다. [_delete_inactive_rooms] 가 방과 함께
+    통째로 지운다. 같은 일을 두 곳에서 하면 어느 쪽이 지웠는지 헷갈린다.
 
     최신 1건을 남기는 이유는 BPM 분석이 "그 방의 가장 최근 분리" 의 드럼
     트랙을 쓰기 때문이다. 쉬는 방에는 BPM 을 돌릴 일이 없으므로 남길
@@ -109,8 +115,7 @@ def _expired(cur, retention_days: int):
     seen_rooms, expired = set(), []
     for job_id, room_id, completed_at, last_active_at in rows:
         if last_active_at < room_cutoff:
-            expired.append(job_id)      # 쉬는 방은 최신도 남기지 않는다
-            continue
+            continue                    # 방째로 지워질 것이라 손대지 않는다
         if room_id not in seen_rooms:   # 쓰는 방의 최신 1건은 보존
             seen_rooms.add(room_id)
             continue
@@ -182,6 +187,73 @@ def _delete_empty_rooms(cur) -> int:
     return cur.rowcount
 
 
+def _remove_upload(file_url: str) -> int:
+    """업로드 파일 하나를 지우고 그 크기를 돌려준다."""
+    try:
+        path = local_upload_path(file_url)
+    except Exception:
+        return 0
+    try:
+        size = os.path.getsize(path)
+        os.remove(path)
+        return size
+    except OSError:
+        return 0
+
+
+def _delete_inactive_rooms(cur):
+    """오래 쉰 방을 통째로 지운다. (지운 방 수, 비운 바이트)
+
+    방 행만 지우면 디스크의 파일은 고아로 남는다. DB 의 CASCADE 는 행만
+    따라 지울 뿐 파일은 모른다. 그래서 파일을 먼저 훑어 지우고 나서
+    레코드를 지운다.
+
+    analysis_job 에는 room 으로부터의 ON DELETE CASCADE 가 없다. 남겨두면
+    방 삭제가 외래키에 막히므로 먼저 지운다. separated_track 과 bpm_result
+    는 analysis_job 을 따라 지워지고, audio_file 과 score, participant 는
+    room 을 따라 지워진다.
+    """
+    cur.execute(
+        """
+        SELECT id::text FROM room
+        WHERE last_active_at < now() - make_interval(days => %s)
+        """,
+        (ROOM_INACTIVE_DAYS,),
+    )
+    room_ids = [r[0] for r in cur.fetchall()]
+    if not room_ids:
+        return 0, 0
+
+    freed = 0
+
+    # 분리 결과 폴더
+    cur.execute(
+        "SELECT id::text FROM analysis_job WHERE room_id::text = ANY(%s)",
+        (room_ids,),
+    )
+    for (job_id,) in cur.fetchall():
+        path = _job_dir(job_id)
+        if os.path.isdir(path):
+            freed += _dir_size(path)
+            shutil.rmtree(path, ignore_errors=True)
+
+    # 원본 음원과 악보
+    for table in ("audio_file", "score"):
+        cur.execute(
+            f"SELECT file_url FROM {table} WHERE room_id::text = ANY(%s)",
+            (room_ids,),
+        )
+        for (file_url,) in cur.fetchall():
+            if file_url:
+                freed += _remove_upload(file_url)
+
+    cur.execute(
+        "DELETE FROM analysis_job WHERE room_id::text = ANY(%s)", (room_ids,)
+    )
+    cur.execute("DELETE FROM room WHERE id::text = ANY(%s)", (room_ids,))
+    return len(room_ids), freed
+
+
 @celery_app.task(name="tasks.cleanup_separated")
 def cleanup_separated(retention_days: int = None, dry_run: bool = False):
     days = RETENTION_DAYS if retention_days is None else int(retention_days)
@@ -193,6 +265,7 @@ def cleanup_separated(retention_days: int = None, dry_run: bool = False):
         orphans = _orphans(cur)
         stale = 0 if dry_run else _fail_stale_jobs(cur)
         empty_rooms = 0 if dry_run else _delete_empty_rooms(cur)
+        dead_rooms, room_freed = (0, 0) if dry_run else _delete_inactive_rooms(cur)
 
         freed = 0
         for job_id in expired + orphans:
@@ -222,7 +295,8 @@ def cleanup_separated(retention_days: int = None, dry_run: bool = False):
             "orphan_dirs": len(orphans),
             "stale_jobs_failed": stale,
             "empty_rooms_deleted": empty_rooms,
-            "freed_mb": round(freed / 1024 / 1024, 1),
+            "inactive_rooms_deleted": dead_rooms,
+            "freed_mb": round((freed + room_freed) / 1024 / 1024, 1),
         }
     except Exception as e:
         conn.rollback()
