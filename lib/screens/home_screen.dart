@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
+import '../services/recent_rooms.dart';
 import 'join_room_screen.dart';
 import 'main_screen.dart';
 import '../theme/tokens.dart';
@@ -19,6 +20,10 @@ class _HomeScreenState extends State<HomeScreen>
   final _roomNameController = TextEditingController();
   bool _isLoading = false;
   bool get _hasNickname => _nicknameController.text.trim().isNotEmpty;
+
+  /// 이 기기에서 다녀간 방. 6자리 코드를 외우고 있지 않아도 돌아갈 수 있게
+  /// 하는 유일한 길이다.
+  List<RecentRoom> _recent = const <RecentRoom>[];
 
   // 흔들기 애니메이션
   late final AnimationController _shakeController = AnimationController(
@@ -40,6 +45,7 @@ class _HomeScreenState extends State<HomeScreen>
   void initState() {
     super.initState();
     _nicknameController.addListener(() => setState(() {}));
+    _loadRecent();
   }
 
   @override
@@ -67,6 +73,13 @@ class _HomeScreenState extends State<HomeScreen>
           : _roomNameController.text.trim();
       final result = await ApiService()
           .createRoom(roomName, _nicknameController.text.trim());
+
+      await RecentRooms.remember(
+        roomId: result['room_id']?.toString() ?? '',
+        roomCode: result['room_code'] as String,
+        roomName: roomName,
+        nickname: _nicknameController.text.trim(),
+      );
       if (!mounted) return;
       FocusScope.of(context).unfocus();
       Navigator.pushAndRemoveUntil(
@@ -99,6 +112,155 @@ class _HomeScreenState extends State<HomeScreen>
       MaterialPageRoute(
         builder: (_) =>
             JoinRoomScreen(nickname: _nicknameController.text.trim()),
+      ),
+    );
+  }
+
+  Future<void> _loadRecent() async {
+    final rooms = await RecentRooms.load();
+    if (mounted) setState(() => _recent = rooms);
+  }
+
+  /// 목록에서 바로 들어간다. 그 방에서 쓰던 이름을 그대로 쓴다.
+  Future<void> _reenter(RecentRoom room) async {
+    if (_isLoading) return;
+    setState(() => _isLoading = true);
+    try {
+      final result = await ApiService().joinRoom(room.roomCode, room.nickname);
+      await RecentRooms.remember(
+        roomId: room.roomId,
+        roomCode: room.roomCode,
+        roomName: result['room_name']?.toString() ?? room.roomName,
+        nickname: room.nickname,
+      );
+      if (!mounted) return;
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(
+          builder: (_) => MainScreen(
+            nickname: room.nickname,
+            roomCode: room.roomCode,
+            roomId: result['room_id']?.toString() ?? room.roomId,
+          ),
+        ),
+        (route) => false,
+      );
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      // 서버에서 사라진 방이면 목록에 남겨둘 이유가 없다.
+      if (e.statusCode == 404) {
+        await RecentRooms.forget(room.roomId);
+        await _loadRecent();
+        _showError('사라진 방입니다. 목록에서 지웠어요.');
+      } else {
+        _showError(e.userMessage);
+      }
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      _showError('서버에 연결할 수 없습니다');
+    }
+  }
+
+  Future<void> _forget(RecentRoom room) async {
+    await RecentRooms.forget(room.roomId);
+    await _loadRecent();
+  }
+
+  Widget _buildRecentRooms() {
+    if (_recent.isEmpty) return const SizedBox.shrink();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 28),
+        Row(
+          children: [
+            const Text(
+              '최근 방',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: AppColors.inkSecondary,
+              ),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              '${_recent.length}',
+              style: const TextStyle(
+                fontSize: 12,
+                color: AppColors.inkTertiary,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        for (final room in _recent) _buildRecentTile(room),
+      ],
+    );
+  }
+
+  Widget _buildRecentTile(RecentRoom room) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: _isLoading ? null : () => _reenter(room),
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppColors.separator),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        room.roomName.isEmpty ? room.roomCode : room.roomName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.ink,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '${room.roomCode} · ${room.nickname} · '
+                        '${room.visitedLabel}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: AppColors.inkTertiary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => _forget(room),
+                  child: const Padding(
+                    padding: EdgeInsets.all(6),
+                    child: Icon(
+                      Icons.close_rounded,
+                      size: 16,
+                      color: AppColors.inkTertiary,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -332,20 +494,27 @@ class _HomeScreenState extends State<HomeScreen>
                                 ),
                               ),
                             ),
-                            const SizedBox(height: 24),
-
-                            // ── 하단 안내 ──────────────────────────────────
-                            AnimatedOpacity(
-                              opacity: _hasNickname ? 0.0 : 1.0,
+                            // ── 안내 ──────────────────────────────────
+                            // 목록 아래에 두면 밀려서 안 보인다. 버튼 바로
+                            // 밑이라야 왜 눌러도 반응이 없는지 알 수 있다.
+                            AnimatedSize(
                               duration: const Duration(milliseconds: 200),
-                              child: const Text(
-                                '닉네임을 입력하여 시작하세요',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: AppColors.inkTertiary,
-                                ),
-                              ),
+                              child: _hasNickname
+                                  ? const SizedBox(width: double.infinity)
+                                  : const Padding(
+                                      padding: EdgeInsets.only(top: 12),
+                                      child: Text(
+                                        '닉네임을 입력하여 시작하세요',
+                                        textAlign: TextAlign.center,
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: AppColors.inkTertiary,
+                                        ),
+                                      ),
+                                    ),
                             ),
+                            _buildRecentRooms(),
+                            const SizedBox(height: 24),
                           ],
                         ),
                       ),

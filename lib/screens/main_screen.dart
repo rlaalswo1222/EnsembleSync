@@ -90,6 +90,15 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   /// 분리는 끝났고 BPM 분석만 아직 도는 중. 결과 화면에서 진행 표시를 낸다.
   bool _bpmPending = false;
 
+  /// 정리까지 며칠 남았는지. 임박했을 때만 띠를 띄운다.
+  ///
+  /// 30일 내내 경고를 붙여두면 아무도 안 읽는다. 서버가 warn 을 계산해
+  /// 주므로 앱은 그 값만 보고 띄울지 정한다.
+  int? _daysLeft;
+  double _separatedMb = 0;
+  bool _showExpiryBanner = false;
+  bool _keeping = false;
+
   bool get _isPdf => _pdfDocument != null && _pdfPageCount > 0;
   Uint8List? get _currentDisplayBytes =>
       _isPdf ? _pdfPageCache[_currentPdfPage] : _scoreImageBytes;
@@ -140,6 +149,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       _ws.connect();
       _listenWebSocket();
     });
+    _loadRoomStatus();
   }
 
   @override
@@ -716,6 +726,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             child: Column(
               children: [
                 _buildHeader(),
+                _buildExpiryBanner(),
                 Expanded(child: _buildTabBody()),
                 _buildBottomBar(),
               ],
@@ -755,6 +766,99 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       _preferredResultMode = ResultMode.track;
       _tabIndex = 2;
     });
+  }
+
+  Future<void> _loadRoomStatus() async {
+    if (widget.roomId.isEmpty) return;
+    try {
+      final data = await ApiService().getRoomStatus(widget.roomId);
+      if (!mounted) return;
+      setState(() {
+        _daysLeft = (data['days_left'] as num?)?.toInt();
+        _separatedMb = (data['separated_mb'] as num?)?.toDouble() ?? 0;
+        _showExpiryBanner = data['warn'] == true;
+      });
+    } catch (_) {
+      // 안내를 못 띄우는 것뿐이다. 방을 쓰는 데는 지장이 없다.
+    }
+  }
+
+  Future<void> _keepRoom() async {
+    if (_keeping) return;
+    setState(() => _keeping = true);
+    try {
+      final data = await ApiService().keepRoom(widget.roomId);
+      if (!mounted) return;
+      setState(() {
+        _daysLeft = (data['days_left'] as num?)?.toInt();
+        _showExpiryBanner = false;
+        _keeping = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(data['message'] as String? ?? '보관했습니다')),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _keeping = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('보관 연장에 실패했습니다')),
+      );
+    }
+  }
+
+  /// 정리 예고 띠. 기한이 임박했을 때만 나타난다.
+  Widget _buildExpiryBanner() {
+    if (!_showExpiryBanner || _daysLeft == null) {
+      return const SizedBox.shrink();
+    }
+    final days = _daysLeft!;
+    final size = _separatedMb >= 1
+        ? ' · 분석 결과 ${_separatedMb.toStringAsFixed(0)}MB'
+        : '';
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppColors.fill,
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+      ),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.schedule_rounded,
+            size: 16,
+            color: AppColors.inkSecondary,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              days <= 0 ? '곧 분석 결과가 정리됩니다$size' : '$days일 뒤 분석 결과가 정리됩니다$size',
+              style: const TextStyle(
+                fontSize: 12,
+                color: AppColors.inkBody,
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: _keeping ? null : _keepRoom,
+            style: TextButton.styleFrom(
+              foregroundColor: AppColors.ink,
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: Text(
+              _keeping ? '...' : '보관',
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildHeader() {

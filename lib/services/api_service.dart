@@ -231,6 +231,40 @@ class ApiService {
     throw ApiException(response.statusCode, _parseError(response.body));
   }
 
+  /// 방이 언제 정리되는지, 지금 얼마나 쓰고 있는지.
+  Future<Map<String, dynamic>> getRoomStatus(String roomId) async {
+    final uri = Uri.parse('${ApiConstants.baseUrl}/api/room/$roomId/status');
+    final response = await _client
+        .get(uri, headers: _headers)
+        .timeout(const Duration(seconds: 10));
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      if (data['status'] == 200) return data;
+      throw ApiException(
+        data['status'] as int? ?? 500,
+        data['message'] as String? ?? '방 상태 조회 실패',
+      );
+    }
+    throw ApiException(response.statusCode, _parseError(response.body));
+  }
+
+  /// 정리 기한을 지금부터 다시 센다.
+  Future<Map<String, dynamic>> keepRoom(String roomId) async {
+    final uri = Uri.parse('${ApiConstants.baseUrl}/api/room/$roomId/keep');
+    final response = await _client
+        .post(uri, headers: _headers)
+        .timeout(const Duration(seconds: 10));
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      if (data['status'] == 200) return data;
+      throw ApiException(
+        data['status'] as int? ?? 500,
+        data['message'] as String? ?? '보관 연장 실패',
+      );
+    }
+    throw ApiException(response.statusCode, _parseError(response.body));
+  }
+
   Future<void> cancelAnalysis(String jobId) async {
     final uri = Uri.parse('${ApiConstants.baseUrl}/api/analysis/$jobId/cancel');
     await _client
