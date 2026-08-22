@@ -1,5 +1,6 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 import psycopg2.extras
+import ratelimit
 from database import get_db
 from celery_app import celery_app
 from config import REDIS_HOST, REDIS_PORT
@@ -18,13 +19,27 @@ def publish_room_event(room_id: str, message: dict):
         pass
 
 @router.post("/api/analysis/{room_id}/start")
-async def start_analysis(room_id: str, audio_file_id: str, job_type: str):
+async def start_analysis(
+    http: Request, room_id: str, audio_file_id: str, job_type: str
+):
     """
     분석 작업 생성 API
     - UC-06, UC-10, UC-12
     - job_type: bpm / pitch / separation (sync 제거)
     - 상태: pending → processing → done → failed
     """
+    # 분리는 4분 곡에 6분 30초가 걸린다. 한 사람이 큐를 독차지하지 못하게
+    # 막는다. BPM 은 몇 초라 굳이 세지 않는다.
+    if job_type == "separation":
+        limited = (
+            ratelimit.limit_ip(http, "separate", *ratelimit.SEPARATE_PER_IP)
+            or ratelimit.limit_room(
+                room_id, "separate", *ratelimit.SEPARATE_PER_ROOM
+            )
+        )
+        if limited:
+            return limited
+
     conn = None
     try:
         ALLOWED_JOB_TYPES = {'bpm', 'pitch', 'separation'}

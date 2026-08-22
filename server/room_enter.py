@@ -1,7 +1,8 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from pydantic import BaseModel
 import psycopg2
 import psycopg2.extras
+import ratelimit
 from database import get_db
 
 router = APIRouter()
@@ -13,7 +14,14 @@ class RoomJoinRequest(BaseModel):
 
 
 @router.post("/api/room/join")
-async def join_room(request: RoomJoinRequest):
+async def join_room(http: Request, request: RoomJoinRequest):
+    # 방 코드는 여섯 자리다. 마구 넣어 맞히는 것을 늦춘다.
+    limited = ratelimit.limit_ip(
+        http, "room_join", *ratelimit.ROOM_JOIN_PER_IP
+    )
+    if limited:
+        return limited
+
     conn = None
     try:
         conn = get_db()

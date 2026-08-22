@@ -1,8 +1,9 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from pydantic import BaseModel
 import random
 import string
 import psycopg2.extras
+import ratelimit
 from database import get_db
 
 router = APIRouter()
@@ -19,7 +20,13 @@ def generate_room_code():
 
 
 @router.post("/api/room/create")
-async def create_room(request: RoomCreateRequest):
+async def create_room(http: Request, request: RoomCreateRequest):
+    limited = ratelimit.limit_ip(
+        http, "room_create", *ratelimit.ROOM_CREATE_PER_IP
+    )
+    if limited:
+        return limited
+
     conn = None
     try:
         creator_name = request.creator_name.strip()
