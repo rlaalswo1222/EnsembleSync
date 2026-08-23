@@ -44,10 +44,46 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   late final WebSocketService _ws;
 
   final Map<int, List<Stroke>> _pageStrokes = {};
+
+  /// 내가 그은 획을 그은 순서대로 담아 둔다. 되돌리기가 여기서 하나씩 꺼낸다.
+  ///
+  /// 남이 그은 것까지 되돌리면 안 된다. 같은 악보를 함께 보는 방에서
+  /// 내 되돌리기 단추가 옆 사람의 필기를 지우면 그건 사고다.
+  ///
+  /// 페이지마다 따로 쌓는다. 3쪽에서 되돌리기를 눌렀는데 1쪽의 필기가
+  /// 사라지면 무슨 일이 났는지 알 수가 없다.
+  final Map<int, List<String>> _myStrokeIds = {};
+
+  List<String> _myIdsForPage(int page) => _myStrokeIds[page] ??= <String>[];
+
+  bool get _canUndo => _myIdsForPage(_currentPdfPage).isNotEmpty;
   Stroke? _currentStroke;
   DrawTool _tool = DrawTool.pen;
   Color _penColor = _primary;
-  final double _penWidth = 3.0;
+
+  /// 도구마다 굵기를 따로 기억한다.
+  ///
+  /// 하나로 묶으면 펜을 얇게 쓰다가 형광펜으로 바꾸는 순간 형광펜이
+  /// 실선처럼 가늘어진다. 셋은 쓰임이 달라서 알맞은 굵기도 다르다.
+  final Map<DrawTool, double> _toolWidths = <DrawTool, double>{
+    DrawTool.pen: 3,
+    DrawTool.highlighter: 18,
+    DrawTool.eraser: 20,
+  };
+
+  /// 도구별로 고를 수 있는 굵기.
+  ///
+  /// 자유롭게 정하는 슬라이더 대신 몇 개만 둔다. 악보에 쓰는 굵기는
+  /// 사실상 '얇게 · 보통 · 굵게' 면 충분하고, 손가락으로 미세하게 맞추는
+  /// 것은 오히려 성가시다.
+  static const Map<DrawTool, List<double>> _widthChoices =
+      <DrawTool, List<double>>{
+    DrawTool.pen: <double>[1.5, 3, 5, 8],
+    DrawTool.highlighter: <double>[12, 18, 26],
+    DrawTool.eraser: <double>[12, 20, 32],
+  };
+
+  double get _currentWidth => _toolWidths[_tool] ?? 3;
 
   final List<Map<String, dynamic>> _participants = [];
 
@@ -73,6 +109,16 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   }
 
   int _tabIndex = 0;
+
+  /// 악보를 넓게 펼 수 있는 화면인가.
+  ///
+  /// 태블릿을 말한다. 이때는 도구를 위가 아니라 왼쪽에 세운다. 위를
+  /// 가로지르는 도구 줄은 폭이 남아도 세로만 깎아먹는다.
+  ///
+  /// 600 은 태블릿과 폰을 가르는 흔한 기준이다. 앱은 세로로 고정돼 있으므로
+  /// 폰이 이 값을 넘는 일은 없다.
+  static bool _isWide(BuildContext context) =>
+      MediaQuery.sizeOf(context).width >= 600;
 
   /// 스템 이름 → (화면 이름, 아이콘). 순서가 곧 화면에 쌓이는 순서다.
   ///
@@ -207,11 +253,18 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
               for (final strokes in _pageStrokes.values) {
                 strokes.removeWhere((s) => s.id == id);
               }
+              // 이미 사라진 획을 되돌리기가 다시 지우려 들면 안 된다.
+              for (final ids in _myStrokeIds.values) {
+                ids.remove(id);
+              }
             });
           }
           break;
         case WsEventType.clear:
-          setState(() => _pageStrokes.clear());
+          setState(() {
+            _pageStrokes.clear();
+            _myStrokeIds.clear();
+          });
           break;
         case WsEventType.userJoined:
           final name = event.data['user_name'] as String?;
@@ -340,6 +393,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         _currentPdfPage = 0;
         _scoreImageBytes = null;
         _pageStrokes.clear();
+        _myStrokeIds.clear();
         _isLoadingPdf = false;
       });
       nextDocument = null;
@@ -384,6 +438,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       _loadingPdfPages.clear();
       _currentPdfPage = 0;
       _pageStrokes.clear();
+      _myStrokeIds.clear();
       _isLoadingPdf = false;
     });
     unawaited(previousDocument?.close() ?? Future<void>.value());
@@ -488,14 +543,78 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             ) |
             0xFF000000,
       ),
-      width: isEraser
-          ? 20.0
-          : isHighlighter
-              ? 18.0
-              : _penWidth,
+      // 보낸 쪽이 정한 굵기를 그대로 쓴다.
+      //
+      // 예전에는 도구 종류만 보고 이쪽에서 굵기를 정했다. 그러면 상대가
+      // 얇게 그은 선이 내 화면에서는 굵게 보인다. 같은 악보를 함께 보는
+      // 앱에서 이건 그냥 다른 그림이다.
+      //
+      // 굵기를 안 보내던 시절의 기록에는 값이 없다. 그때 쓰던 값을
+      // 그대로 넣어 예전 필기도 지금과 같게 보이게 한다.
+      width: (payload['stroke_width'] as num?)?.toDouble() ??
+          (isEraser
+              ? 20.0
+              : isHighlighter
+                  ? 18.0
+                  : 3.0),
       isEraser: isEraser,
       isHighlighter: isHighlighter,
     );
+  }
+
+  /// 내가 마지막으로 그은 획을 지운다.
+  ///
+  /// 서버가 스냅샷에서도 빼 주므로 나중에 들어온 사람에게도 되살아나지
+  /// 않는다.
+  void _undo() {
+    final List<String> mine = _myIdsForPage(_currentPdfPage);
+    if (mine.isEmpty) return;
+    final String id = mine.removeLast();
+    setState(() {
+      for (final List<Stroke> strokes in _pageStrokes.values) {
+        strokes.removeWhere((Stroke s) => s.id == id);
+      }
+    });
+    _ws.sendErase(id);
+  }
+
+  /// 방의 필기를 전부 지운다.
+  ///
+  /// 남의 것까지 사라지고 되돌릴 수 없으므로 반드시 한 번 묻는다.
+  Future<void> _clearAll() async {
+    final bool? ok = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext context) => AlertDialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+        ),
+        title: const Text('필기를 전부 지울까요?'),
+        content: const Text(
+          '이 방의 모든 페이지에서 모두의 필기가 사라집니다. 되돌릴 수 없습니다.',
+          style: TextStyle(color: AppColors.inkBody),
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('취소',
+                style: TextStyle(color: AppColors.inkSecondary)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('전부 지우기',
+                style: TextStyle(color: AppColors.danger)),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+
+    setState(() {
+      _pageStrokes.clear();
+      _myStrokeIds.clear();
+    });
+    _ws.sendClear();
   }
 
   void _showUploadSheet() {
@@ -577,6 +696,86 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     );
   }
 
+  /// 도구를 누른다. 이미 고른 도구를 다시 누르면 굵기를 정하는 창이 뜬다.
+  ///
+  /// 굵기 단추를 따로 두면 도구 줄이 두 배로 길어진다. 고른 것을 다시
+  /// 누르면 자세히 볼 수 있다는 것은 필기 앱에서 흔한 약속이라, 한 번쯤
+  /// 눌러보면 알게 된다.
+  void _onToolTap(DrawTool tool) {
+    if (_tool == tool) {
+      _showToolOptions(tool);
+      return;
+    }
+    setState(() => _tool = tool);
+  }
+
+  static String _toolName(DrawTool tool) => switch (tool) {
+        DrawTool.pen => '펜',
+        DrawTool.highlighter => '형광펜',
+        DrawTool.eraser => '지우개',
+      };
+
+  void _showToolOptions(DrawTool tool) {
+    final List<double> choices = _widthChoices[tool] ?? const <double>[3];
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => StatefulBuilder(
+        builder: (BuildContext context, StateSetter refresh) {
+          void pick(double width) {
+            setState(() => _toolWidths[tool] = width);
+            refresh(() {});
+          }
+
+          return SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    '${_toolName(tool)} 굵기',
+                    style: const TextStyle(
+                      fontSize: AppText.body,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.ink,
+                    ),
+                  ),
+                  const SizedBox(height: AppSpace.lg),
+                  Row(
+                    children: <Widget>[
+                      for (final double width in choices) ...<Widget>[
+                        Expanded(
+                          child: _WidthChoice(
+                            width: width,
+                            // 지우개는 색이 없다. 굵기만 보여주면 되므로
+                            // 무채색으로 그린다.
+                            color: tool == DrawTool.eraser
+                                ? AppColors.inkSecondary
+                                : _penColor,
+                            selected: _toolWidths[tool] == width,
+                            onTap: () => pick(width),
+                          ),
+                        ),
+                        if (width != choices.last)
+                          const SizedBox(width: AppSpace.sm),
+                      ],
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   void _showColorPicker() {
     // 필기 펜은 도구라 유채색을 그대로 쓴다. 화면 색과는 목적이 다르다.
     const colors = AppColors.pen;
@@ -618,28 +817,27 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     );
   }
 
-  void _onPanStart(DragStartDetails d, Size canvasSize) {
-    final norm = _normalize(d.localPosition, canvasSize);
+  /// 필기 좌표는 ScoreCanvas 가 이미 0~1 로 만들어 준다.
+  ///
+  /// 예전에는 여기서 화면 크기로 나눴는데, 그러면 악보가 화면 어디에 어떻게
+  /// 놓였는지 모르는 채로 계산하는 셈이다. 확대까지 들어오면서 그 계산은
+  /// 악보를 그리는 쪽만 할 수 있게 됐다.
+  void _onStrokeStart(Offset norm) {
     final id = '${widget.nickname}_${DateTime.now().millisecondsSinceEpoch}';
     setState(() {
       _currentStroke = Stroke(
         id: id,
         points: [norm],
         color: _tool == DrawTool.eraser ? Colors.white : _penColor,
-        width: _tool == DrawTool.eraser
-            ? 20.0
-            : _tool == DrawTool.highlighter
-                ? 18.0
-                : _penWidth,
+        width: _currentWidth,
         isEraser: _tool == DrawTool.eraser,
         isHighlighter: _tool == DrawTool.highlighter,
       );
     });
   }
 
-  void _onPanUpdate(DragUpdateDetails d, Size canvasSize) {
+  void _onStrokeUpdate(Offset norm) {
     if (_currentStroke == null) return;
-    final norm = _normalize(d.localPosition, canvasSize);
     setState(() {
       _currentStroke = Stroke(
         id: _currentStroke!.id,
@@ -652,11 +850,19 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     });
   }
 
-  void _onPanEnd(Size canvasSize) {
+  /// 그리려던 것이 아니었다. 두 손가락으로 확대하려다 한쪽이 먼저 닿은
+  /// 것이므로 그리던 획을 버린다.
+  void _onStrokeCancel() {
+    if (_currentStroke == null) return;
+    setState(() => _currentStroke = null);
+  }
+
+  void _onStrokeEnd() {
     if (_currentStroke == null) return;
     final stroke = _currentStroke!;
     setState(() {
       _strokes.add(stroke);
+      _myIdsForPage(_currentPdfPage).add(stroke.id);
       _currentStroke = null;
     });
     final toolType = stroke.isEraser
@@ -669,6 +875,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       'member_id': widget.nickname,
       'page_index': _currentPdfPage,
       'tool_type': toolType,
+      'stroke_width': stroke.width,
       'color':
           '#${stroke.color.toARGB32().toRadixString(16).padLeft(8, '0').substring(2)}',
       'stroke_data': stroke.points.map((p) => {'x': p.dx, 'y': p.dy}).toList(),
@@ -676,9 +883,6 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       'created_at': DateTime.now().toIso8601String(),
     });
   }
-
-  Offset _normalize(Offset pos, Size size) =>
-      Offset(pos.dx / size.width, pos.dy / size.height);
 
   void _showSnack(String message) {
     ScaffoldMessenger.of(context)
@@ -752,20 +956,23 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       backgroundColor: AppColors.canvas,
       resizeToAvoidBottomInset: false,
       body: SafeArea(
-        child: Center(
-          // 폭 제한만 남긴다. 폰에서는 화면이 400 이하라 영향이 없고,
-          // 웹에서 이걸 빼면 데스크톱 폭 그대로 늘어나 못 쓰게 된다.
-          child: Container(
-            constraints: const BoxConstraints(maxWidth: 400),
-            decoration: const BoxDecoration(color: AppColors.surface),
-            child: Column(
-              children: [
-                _buildHeader(),
-                _buildExpiryBanner(),
-                Expanded(child: _buildTabBody()),
-                _buildBottomBar(),
-              ],
-            ),
+        child: Container(
+          decoration: const BoxDecoration(color: AppColors.surface),
+          // 폭 제한을 화면 단위가 아니라 탭 단위로 옮겼다.
+          //
+          // 예전에는 방 화면 전체를 400 으로 묶었다. 폰에서는 화면이 그보다
+          // 좁아 영향이 없었지만, 태블릿에서는 그 넓은 화면을 두고 가운데
+          // 400 짜리 기둥만 쓰게 된다. 악보를 보는 앱에서 이건 치명적이다.
+          //
+          // 악보는 넓을수록 좋고, 분석·결과는 너무 늘어지면 읽기 나쁘다.
+          // 그래서 필요한 쪽에서만 묶는다.
+          child: Column(
+            children: [
+              _buildHeader(),
+              _buildExpiryBanner(),
+              Expanded(child: _buildTabBody()),
+              _buildBottomBar(),
+            ],
           ),
         ),
       ),
@@ -1021,37 +1228,10 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       ),
       child: Row(
         children: [
-          _ToolButton(
-            icon: Icons.edit_rounded,
-            selected: _tool == DrawTool.pen,
-            onTap: () => setState(() => _tool = DrawTool.pen),
-          ),
-          const SizedBox(width: 4),
-          _ToolButton(
-            icon: Icons.highlight_rounded,
-            selected: _tool == DrawTool.highlighter,
-            onTap: () => setState(() => _tool = DrawTool.highlighter),
-          ),
-          const SizedBox(width: 4),
-          _ToolButton(
-            icon: Icons.auto_fix_normal_rounded,
-            selected: _tool == DrawTool.eraser,
-            onTap: () => setState(() => _tool = DrawTool.eraser),
-          ),
-          const SizedBox(width: 8),
-          GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: _showColorPicker,
-            child: Container(
-              width: 32,
-              height: 32,
-              decoration: BoxDecoration(
-                color: _penColor,
-                shape: BoxShape.circle,
-                border: Border.all(color: AppColors.separator, width: 2),
-              ),
-            ),
-          ),
+          for (final Widget item in _toolItems()) ...[
+            item,
+            const SizedBox(width: 6),
+          ],
           const Spacer(),
           _ToolButton(
             icon: Icons.upload_rounded,
@@ -1068,7 +1248,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       index: _tabIndex,
       children: [
         _buildScoreTab(),
-        AnalysisTab(
+        _readable(AnalysisTab(
           roomId: widget.roomId,
           roomCode: widget.roomCode,
           ws: _ws,
@@ -1092,8 +1272,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           onAudioUrl: (url) {
             if (mounted) setState(() => _audioUrl = url);
           },
-        ),
-        ResultTab(
+        )),
+        _wide(ResultTab(
           tracks: _tracks,
           analysisUrl: _analysisUrl,
           audioFilename: _audioFilename,
@@ -1105,17 +1285,129 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           preferredMode: _preferredResultMode,
           onUrlsExpired: _recoverFileUrls,
           reloadToken: _mixerReloadToken,
-        ),
+        )),
       ],
     );
   }
 
+  /// 글과 조작이 늘어지지 않도록 폭을 묶는다.
+  ///
+  /// 분석 화면은 카드 하나에 업로드 단추가 전부라 넓다고 좋아지지 않는다.
+  /// 화면을 가로지르는 단추는 오히려 누르기 나쁘다.
+  Widget _readable(Widget child) => Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 560),
+          child: child,
+        ),
+      );
+
+  /// 넓을수록 좋은 화면.
+  ///
+  /// 파형은 시간을 가로로 펼친 그림이다. 폭이 넓어지면 같은 곡이 더 잘게
+  /// 보이므로 어디서 소리가 들고 나는지 훨씬 잘 읽힌다. 태블릿에서 좌우를
+  /// 비워두는 것은 그냥 손해다.
+  ///
+  /// 그래도 한계는 둔다. 데스크톱 웹에서 2000 픽셀짜리 재생 바가 나오면
+  /// 손이 화면을 가로질러야 한다.
+  Widget _wide(Widget child) => Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 1100),
+          child: child,
+        ),
+      );
+
   Widget _buildScoreTab() {
+    // 넓은 화면에서는 도구를 왼쪽에 세운다. 가로에서는 세로 공간이 귀한데
+    // 도구 줄이 위를 가로지르면 악보가 그만큼 납작해진다.
+    if (_isWide(context)) {
+      return Row(
+        children: [
+          _buildToolRail(),
+          Expanded(child: _buildScoreSurface()),
+        ],
+      );
+    }
     return Column(
       children: [
         _buildToolBar(),
         Expanded(child: _buildScoreSurface()),
       ],
+    );
+  }
+
+  /// 도구 목록. 가로줄과 세로줄이 같은 것을 담는다.
+  List<Widget> _toolItems() => <Widget>[
+        _ToolButton(
+          icon: Icons.edit_rounded,
+          selected: _tool == DrawTool.pen,
+          hasOptions: true,
+          onTap: () => _onToolTap(DrawTool.pen),
+        ),
+        _ToolButton(
+          icon: Icons.highlight_rounded,
+          selected: _tool == DrawTool.highlighter,
+          hasOptions: true,
+          onTap: () => _onToolTap(DrawTool.highlighter),
+        ),
+        _ToolButton(
+          icon: Icons.auto_fix_normal_rounded,
+          selected: _tool == DrawTool.eraser,
+          hasOptions: true,
+          onTap: () => _onToolTap(DrawTool.eraser),
+        ),
+        GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: _showColorPicker,
+          child: Container(
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              color: _penColor,
+              shape: BoxShape.circle,
+              border: Border.all(color: AppColors.separator, width: 2),
+            ),
+          ),
+        ),
+        // 되돌릴 것이 없으면 흐리게 둔다. 눌러도 아무 일이 없는 단추가
+        // 멀쩡해 보이면 고장인지 아닌지 알 수가 없다.
+        _ToolButton(
+          icon: Icons.undo_rounded,
+          selected: false,
+          enabled: _canUndo,
+          onTap: _undo,
+        ),
+        _ToolButton(
+          icon: Icons.layers_clear_rounded,
+          selected: false,
+          onTap: _clearAll,
+        ),
+      ];
+
+  /// 왼쪽에 세우는 도구 줄.
+  Widget _buildToolRail() {
+    return Container(
+      width: 60,
+      margin: const EdgeInsets.fromLTRB(12, 12, 0, 12),
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.separator),
+      ),
+      child: Column(
+        children: [
+          for (final Widget item in _toolItems()) ...[
+            item,
+            const SizedBox(height: 10),
+          ],
+          const Spacer(),
+          _ToolButton(
+            icon: Icons.upload_rounded,
+            selected: false,
+            onTap: _showUploadSheet,
+          ),
+        ],
+      ),
     );
   }
 
@@ -1184,9 +1476,10 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       pdfPageCount: _pdfPageCount,
       strokes: _strokes,
       currentStroke: _currentStroke,
-      onPanStart: _onPanStart,
-      onPanUpdate: _onPanUpdate,
-      onPanEnd: _onPanEnd,
+      onStrokeStart: _onStrokeStart,
+      onStrokeUpdate: _onStrokeUpdate,
+      onStrokeEnd: _onStrokeEnd,
+      onStrokeCancel: _onStrokeCancel,
       onPdfPageChanged: _goToPdfPage,
     );
   }
@@ -1247,21 +1540,33 @@ class _ToolButton extends StatelessWidget {
   final bool selected;
   final VoidCallback onTap;
 
+  /// 눌렀을 때 더 볼 것이 있는가. 고른 도구에는 굵기를 정하는 창이 있다.
+  final bool hasOptions;
+
+  /// 지금 쓸 수 있는가. 되돌릴 것이 없을 때의 되돌리기 단추가 그렇다.
+  final bool enabled;
+
   const _ToolButton({
     required this.icon,
     required this.selected,
     required this.onTap,
+    this.hasOptions = false,
+    this.enabled = true,
   });
 
   @override
   Widget build(BuildContext context) {
     // 도구 종류와 상관없이 같은 색으로 표시한다. 도구마다 색이 다르면
     // "선택됨" 이라는 신호가 아니라 도구의 성격처럼 읽힌다.
-    final Color tint = selected ? AppColors.ink : AppColors.inkTertiary;
+    final Color tint = !enabled
+        ? AppColors.separator
+        : selected
+            ? AppColors.ink
+            : AppColors.inkTertiary;
 
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: onTap,
+      onTap: enabled ? onTap : null,
       child: Container(
         width: 32,
         height: 32,
@@ -1269,7 +1574,27 @@ class _ToolButton extends StatelessWidget {
           color: selected ? tint.withValues(alpha: 0.12) : Colors.transparent,
           borderRadius: BorderRadius.circular(8),
         ),
-        child: Icon(icon, size: 18, color: tint),
+        child: Stack(
+          alignment: Alignment.center,
+          children: <Widget>[
+            Icon(icon, size: 18, color: tint),
+            // 고른 도구의 오른쪽 아래에 작은 표시를 둔다. 다시 누르면
+            // 굵기를 정할 수 있다는 것을 알 방법이 달리 없다.
+            if (selected && hasOptions)
+              Positioned(
+                right: 3,
+                bottom: 3,
+                child: Container(
+                  width: 4,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: tint,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -1312,6 +1637,54 @@ class _SheetItem extends StatelessWidget {
         textAlign: icon == null ? TextAlign.center : TextAlign.start,
       ),
       onTap: onTap,
+    );
+  }
+}
+
+/// 굵기 하나를 고르는 단추.
+///
+/// 숫자 대신 그 굵기의 선을 그대로 보여준다. '5' 가 얼마나 굵은지는
+/// 아무도 모르지만, 그어진 선은 바로 안다.
+class _WidthChoice extends StatelessWidget {
+  const _WidthChoice({
+    required this.width,
+    required this.color,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final double width;
+  final Color color;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        height: 56,
+        decoration: BoxDecoration(
+          color: selected ? AppColors.fill : Colors.transparent,
+          borderRadius: BorderRadius.circular(AppRadius.md),
+          border: Border.all(
+            color: selected ? AppColors.ink : AppColors.separator,
+            width: selected ? 2 : 1,
+          ),
+        ),
+        child: Center(
+          child: Container(
+            width: 34,
+            height: width,
+            decoration: BoxDecoration(
+              color: color,
+              borderRadius: BorderRadius.circular(width / 2),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

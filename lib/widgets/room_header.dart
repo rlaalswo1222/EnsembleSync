@@ -72,90 +72,92 @@ class _RoomHeaderState extends State<RoomHeader> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              const Text('방 코드',
-                  style:
-                      TextStyle(fontSize: 12, color: AppColors.inkSecondary)),
-              const SizedBox(width: 8),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-                decoration: BoxDecoration(
-                  color: AppColors.fill,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  widget.roomCode,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.bold,
-                    color: _primary,
-                    letterSpacing: 1.5,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 6),
-              Tooltip(
-                message: '방 코드 공유',
-                child: GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: widget.onShareRoom,
-                  child: const Icon(Icons.share_rounded,
-                      size: 16, color: AppColors.inkTertiary),
-                ),
-              ),
-            ],
-          ),
+          Row(children: _codeRow()),
           const SizedBox(height: 8),
-          Row(
-            children: [
-              // 숫자가 바뀌는 것도 신호다. 슬쩍 올라오며 바뀐다.
-              AnimatedSwitcher(
-                duration: const Duration(milliseconds: 220),
-                transitionBuilder: (child, animation) => FadeTransition(
-                  opacity: animation,
-                  child: SlideTransition(
-                    position: Tween<Offset>(
-                      begin: const Offset(0, 0.4),
-                      end: Offset.zero,
-                    ).animate(animation),
-                    child: child,
-                  ),
-                ),
-                child: Text(
-                  '참가자 ${widget.participantNames.length}명',
-                  key: ValueKey<int>(widget.participantNames.length),
-                  style: const TextStyle(
-                      fontSize: 12, color: AppColors.inkSecondary),
-                ),
-              ),
-              const SizedBox(width: 8),
-              // 사람이 늘면 줄의 폭이 늘어난다. 툭 늘어나지 않도록 한다.
-              AnimatedSize(
-                duration: const Duration(milliseconds: 260),
-                curve: Curves.easeOut,
-                alignment: Alignment.centerLeft,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    for (final String name in widget.participantNames)
-                      _Avatar(
-                        // 이름을 열쇠로 준다. 앞사람이 나가도 남은 사람의
-                        // 위젯이 그대로 따라가서 색과 상태가 흔들리지 않는다.
-                        key: ValueKey<String>(name),
-                        name: name,
-                        color: _colorFor(name),
-                        arriving: _arriving.contains(name),
-                      ),
-                  ],
-                ),
-              ),
-            ],
-          ),
+          Row(children: _peopleRow()),
         ],
       ),
     );
+  }
+
+  List<Widget> _codeRow() {
+    return <Widget>[
+      const Text('방 코드',
+          style: TextStyle(fontSize: 12, color: AppColors.inkSecondary)),
+      const SizedBox(width: 8),
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+        decoration: BoxDecoration(
+          color: AppColors.fill,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text(
+          widget.roomCode,
+          style: const TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.bold,
+            color: _primary,
+            letterSpacing: 1.5,
+          ),
+        ),
+      ),
+      const SizedBox(width: 6),
+      Tooltip(
+        message: '방 코드 공유',
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: widget.onShareRoom,
+          child: const Icon(Icons.share_rounded,
+              size: 16, color: AppColors.inkTertiary),
+        ),
+      ),
+    ];
+  }
+
+  List<Widget> _peopleRow() {
+    return <Widget>[
+      // 숫자가 바뀌는 것도 신호다. 슬쩍 올라오며 바뀐다.
+      AnimatedSwitcher(
+        duration: const Duration(milliseconds: 220),
+        transitionBuilder: (child, animation) => FadeTransition(
+          opacity: animation,
+          child: SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(0, 0.4),
+              end: Offset.zero,
+            ).animate(animation),
+            child: child,
+          ),
+        ),
+        child: Text(
+          '참가자 ${widget.participantNames.length}명',
+          key: ValueKey<int>(widget.participantNames.length),
+          style:
+              const TextStyle(fontSize: 12, color: AppColors.inkSecondary),
+        ),
+      ),
+      const SizedBox(width: 8),
+      // 사람이 늘면 줄의 폭이 늘어난다. 툭 늘어나지 않도록 한다.
+      AnimatedSize(
+        duration: const Duration(milliseconds: 260),
+        curve: Curves.easeOut,
+        alignment: Alignment.centerLeft,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            for (final String name in widget.participantNames)
+              _Avatar(
+                // 이름을 열쇠로 준다. 앞사람이 나가도 남은 사람의
+                // 위젯이 그대로 따라가서 색과 상태가 흔들리지 않는다.
+                key: ValueKey<String>(name),
+                name: name,
+                color: _colorFor(name),
+                arriving: _arriving.contains(name),
+              ),
+          ],
+        ),
+      ),
+    ];
   }
 }
 

@@ -487,17 +487,48 @@ class _MixerWorkspaceState extends State<MixerWorkspace> {
   /// 파형을 눌러 재생 위치를 옮기는 기능은 뺐다. 볼륨 슬라이더 바로 아래에
   /// 파형이 있어서, 슬라이더를 끌 때마다 부모의 가로 드래그와 슬라이더의
   /// 드래그가 서로 뺏는다. 이동은 아래 재생 바로 한다.
+  /// 트랙 한 줄에서 파형을 뺀 나머지가 차지하는 높이.
+  ///
+  /// 위아래 여백 16, 이름·볼륨·버튼 줄 34, 그 아래 틈 6, 구분선 1.
+  /// 남는 높이를 파형에 나눠주려면 이 값을 먼저 빼야 한다.
+  static const double _rowChromeHeight = 57;
+
+  /// 파형 높이의 아래위 한계.
+  ///
+  /// 폰에서는 28 이 빠듯하게 맞고, 태블릿에서는 그대로 두면 화면 아래쪽이
+  /// 통째로 빈다. 그렇다고 끝없이 늘리면 파형 하나가 화면을 차지해 여러
+  /// 트랙을 견주어 보는 뜻이 사라진다.
+  static const double _minWaveHeight = 28;
+  static const double _maxWaveHeight = 96;
+
   Widget _buildTrackStack() {
-    return ListView(
-      padding: const EdgeInsets.symmetric(horizontal: _outerPad),
-      physics: const ClampingScrollPhysics(),
-      children: <Widget>[
-        for (int i = 0; i < widget.tracks.length; i++)
-          _buildTrackRow(
-            widget.tracks[i],
-            isLast: i == widget.tracks.length - 1,
-          ),
-      ],
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        final int count = widget.tracks.length;
+        // 남는 높이를 트랙 수로 나눠 파형에 준다. 화면이 커질수록 파형이
+        // 커지는 편이, 아래쪽을 비워두는 것보다 쓸모 있다.
+        final double perTrack = count == 0 ? 0 : constraints.maxHeight / count;
+        final double waveHeight =
+            (perTrack - _rowChromeHeight).clamp(_minWaveHeight, _maxWaveHeight);
+
+        // 트랙은 위에서부터 쌓는다.
+        //
+        // 가운데로 모아 봤는데 오히려 나빴다. 위 정보 바에 이어 붙어
+        // 있어야 한 덩어리로 읽힌다. 가운데에 띄우면 그 사이가 벌어져
+        // 서로 상관없는 것처럼 보였다.
+        return ListView(
+          padding: const EdgeInsets.symmetric(horizontal: _outerPad),
+          physics: const ClampingScrollPhysics(),
+          children: <Widget>[
+            for (int i = 0; i < count; i++)
+              _buildTrackRow(
+                widget.tracks[i],
+                isLast: i == count - 1,
+                waveHeight: waveHeight,
+              ),
+          ],
+        );
+      },
     );
   }
 
@@ -507,7 +538,11 @@ class _MixerWorkspaceState extends State<MixerWorkspace> {
   /// 파형 시작 x 가 미묘하게 달라 보이고, 무엇보다 상자 네 개가 따로 놀아서
   /// 세로로 훑기가 어렵다. 멀티트랙은 같은 시각이 같은 x 에 있어야 비교가
   /// 되므로, 구분은 얇은 선으로만 한다.
-  Widget _buildTrackRow(TrackResult track, {required bool isLast}) {
+  Widget _buildTrackRow(
+    TrackResult track, {
+    required bool isLast,
+    required double waveHeight,
+  }) {
     final String stem = _stemOf(track);
     final bool audible = _engine.isAudible(stem);
     final bool soloed = _engine.isSoloed(stem);
@@ -600,7 +635,7 @@ class _MixerWorkspaceState extends State<MixerWorkspace> {
               ),
               const SizedBox(height: 6),
               SizedBox(
-                height: 28,
+                height: waveHeight,
                 child: peaks.isEmpty
                     ? const _NoWaveform()
                     : ValueListenableBuilder<Duration>(
