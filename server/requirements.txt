@@ -85,3 +85,7 @@ uvicorn==0.46.0
 vine==5.1.0
 wcwidth==0.7.0
 websockets==16.0
+
+# 음원 길이를 헤더에서 읽는다. 남은 시간 계산이 곡 길이를 알아야 한다.
+# ffprobe 로도 되지만 그러자고 이 이미지에 ffmpeg 을 넣을 이유가 없다.
+mutagen==1.47.0

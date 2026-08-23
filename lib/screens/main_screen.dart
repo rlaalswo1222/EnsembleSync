@@ -772,7 +772,15 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   ///
   /// WebSocket 알림으로 오는 길과, 그 알림을 놓쳐서 직접 물어본 길이 있다.
   /// 둘 다 같은 모양의 payload 를 주므로 처리도 한 곳에서 한다.
-  void applySeparationPayload(Map<String, dynamic> payload) {
+  ///
+  /// [switchTab] 은 분석이 방금 끝났을 때만 켠다. 사용자가 기다리던 결과라
+  /// 바로 보여주는 것이 맞다. 반대로 파일 주소만 조용히 새로 받는 길에서는
+  /// 꺼야 한다 — 그쪽은 사용자가 아무것도 요청하지 않았는데 화면이 바뀌는
+  /// 셈이 된다.
+  void applySeparationPayload(
+    Map<String, dynamic> payload, {
+    bool switchTab = true,
+  }) {
     final tracksJson = payload['tracks'] as Map<String, dynamic>? ?? {};
     // 재생용 mp3. 변환에 실패한 트랙은 여기에 없고 wav 로 재생된다.
     final streamsJson = payload['streams'] as Map<String, dynamic>? ?? {};
@@ -795,7 +803,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       _bpmPending = true;
       _bpmResult = null;
       _preferredResultMode = ResultMode.track;
-      _tabIndex = 2;
+      if (switchTab) _tabIndex = 2;
     });
   }
 
@@ -818,7 +826,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       final separation = data['separation'] as Map<String, dynamic>?;
       if (separation != null) {
         // 알림으로 올 때와 같은 모양이라 같은 길로 처리한다.
-        applySeparationPayload(separation);
+        applySeparationPayload(separation, switchTab: switchTab);
         // 복원은 새 분석이 아니다. BPM 을 기다리는 표시를 띄우면 안 된다.
         setState(() {
           _bpmPending = false;

@@ -192,94 +192,179 @@ async def cancel_analysis(job_id: str):
         if conn:
             conn.close()
 
-# 처리 시간 표본이 이만큼은 있어야 평균을 믿는다.
+# 비율 표본이 이만큼은 있어야 믿는다.
 MIN_SAMPLES = 3
 
-# 표본이 모자랄 때 쓸 값.
+# 오디오 1초를 처리하는 데 걸리는 초.
 #
-# 2 OCPU 에서 3분 20초 곡이 302초 걸렸다(htdemucs, 동시 실행 1개).
-# 오디오 1초에 약 1.5초이므로 4분 곡이면 360초쯤 된다. 넉넉하게 잡는다 —
-# 예상보다 일찍 끝나는 것은 괜찮지만 늦게 끝나면 고장으로 보인다.
-FALLBACK_SECONDS = 400
+# 2 OCPU 에서 3분 20초(199.6초) 곡이 302.2초 걸렸다 — 1.51 이다.
+# (htdemucs, 동시 실행 1개, demucs 가 코어 1.85개를 씀)
+# 표본이 쌓이기 전까지 이 값을 쓴다.
+FALLBACK_RATE = 1.55
+
+# 비율이 이 범위를 벗어나면 표본이 이상한 것으로 보고 버린다.
+#
+# 서버가 잠깐 다른 일에 눌렸거나, 길이를 잘못 읽은 파일 하나가 섞이면
+# 평균이 크게 흔들린다. 그 값으로 "약 3시간" 같은 소리를 하게 된다.
+RATE_MIN, RATE_MAX = 0.5, 6.0
+
+# 길이를 모르는 곡에 가정하는 값. 예전에 올라온 것들은 duration_sec 이
+# 비어 있다.
+ASSUMED_DURATION = 240
 
 
-def _avg_seconds(cur) -> float:
-    """최근 분리 작업이 실제로 돈 시간의 평균.
+def _rate(cur) -> float:
+    """오디오 1초당 실제로 걸린 초.
+
+    예전에는 "최근 작업들이 걸린 시간의 평균" 을 그대로 썼다. 곡 길이를
+    보지 않았다는 뜻이다. 1분짜리를 올린 사람과 6분짜리를 올린 사람에게
+    같은 숫자를 내놓았으니 맞을 리가 없었다.
+
+    길이로 나눈 비율은 곡이 달라져도 거의 같다. 그래서 이쪽을 평균 낸다.
 
     requested_at 이 아니라 started_at 부터 잰다. 큐에서 기다린 시간까지
-    포함하면 대기가 길수록 예상 시간이 부풀어 오르고, 그 값으로 다시 대기
-    시간을 계산하니 점점 커진다.
+    넣으면 대기가 길수록 비율이 부풀고, 그 값으로 다시 대기 시간을
+    계산하니 점점 커진다.
+
+    duration_sec 이 있는 것만 센다. 그 값을 채우기 시작한 것이 동시 실행을
+    1개로 줄인 시점과 같아서, 옛 기록(두 개가 겹쳐 돌아 두 배로 느렸던
+    때)이 자연히 걸러진다.
     """
     cur.execute(
         """
-        SELECT avg(EXTRACT(EPOCH FROM (completed_at - started_at))) AS sec,
-               count(*) AS n
-        FROM (
-            SELECT completed_at, started_at FROM analysis_job
-            WHERE job_type = 'separation' AND status = 'done'
-              AND started_at IS NOT NULL AND completed_at IS NOT NULL
-            ORDER BY completed_at DESC LIMIT 20
+        SELECT avg(rate) AS rate, count(*) AS n FROM (
+            SELECT EXTRACT(EPOCH FROM (aj.completed_at - aj.started_at))
+                   / af.duration_sec AS rate
+            FROM analysis_job aj
+            JOIN audio_file af ON af.id = aj.audio_file_id
+            WHERE aj.job_type = 'separation' AND aj.status = 'done'
+              AND aj.started_at IS NOT NULL AND aj.completed_at IS NOT NULL
+              AND af.duration_sec IS NOT NULL AND af.duration_sec > 0
+            ORDER BY aj.completed_at DESC LIMIT 20
         ) recent
-        """
+        WHERE rate BETWEEN %s AND %s
+        """,
+        (RATE_MIN, RATE_MAX),
     )
     row = cur.fetchone()
-    if not row or not row["n"] or row["n"] < MIN_SAMPLES or not row["sec"]:
-        return FALLBACK_SECONDS
-    return float(row["sec"])
+    if not row or not row["n"] or row["n"] < MIN_SAMPLES or not row["rate"]:
+        return FALLBACK_RATE
+    return float(row["rate"])
+
+
+def _durations(cur, job_ids) -> dict:
+    """작업 id → 곡 길이(초)."""
+    if not job_ids:
+        return {}
+    cur.execute(
+        """
+        SELECT aj.id::text AS job_id, af.duration_sec
+        FROM analysis_job aj
+        JOIN audio_file af ON af.id = aj.audio_file_id
+        WHERE aj.id::text = ANY(%s)
+        """,
+        (list(job_ids),),
+    )
+    return {
+        r["job_id"]: (r["duration_sec"] or ASSUMED_DURATION)
+        for r in cur.fetchall()
+    }
+
+
+# 분리를 동시에 몇 개까지 돌리는가. compose 의 --concurrency 와 같아야 한다.
+#
+# demucs 는 혼자서도 코어를 거의 다 쓴다(2 OCPU 에서 1.85개). 그래서 하나만
+# 돌린다. 여기서는 "진짜로 도는 것이 최대 몇 개인가" 를 아는 데 쓴다.
+SEPARATION_SLOTS = 1
 
 
 def _queue_info(cur, job) -> dict:
-    """내 앞에 몇 개가 남았는지와 대략 얼마나 걸릴지."""
+    """내 앞에 몇 개가 남았는지와 대략 얼마나 걸릴지.
+
+    앞선 곡들의 길이를 하나씩 더한다. 예전에는 "평균 × 개수" 였는데, 앞에
+    1분짜리가 있는 경우와 6분짜리가 있는 경우가 같은 값으로 나왔다.
+    """
     if job["job_type"] != "separation" or job["status"] not in (
         "pending",
         "processing",
     ):
         return {}
 
-    avg = _avg_seconds(cur)
+    rate = _rate(cur)
+    my_id = str(job["id"])
 
     if job["status"] == "processing":
         cur.execute(
-            "SELECT EXTRACT(EPOCH FROM (now() - started_at)) AS sec "
-            "FROM analysis_job WHERE id = %s",
-            (job["id"],),
+            """
+            SELECT EXTRACT(EPOCH FROM (now() - aj.started_at)) AS sec,
+                   af.duration_sec
+            FROM analysis_job aj
+            JOIN audio_file af ON af.id = aj.audio_file_id
+            WHERE aj.id = %s
+            """,
+            (my_id,),
         )
-        elapsed = float((cur.fetchone() or {}).get("sec") or 0)
+        row = cur.fetchone() or {}
+        elapsed = float(row.get("sec") or 0)
+        total = (row.get("duration_sec") or ASSUMED_DURATION) * rate
         return {
             "queue_position": 0,
-            "eta_seconds": max(0, int(avg - elapsed)),
+            "eta_seconds": max(0, int(total - elapsed)),
+            "own_seconds": int(total),
         }
 
     # 내 앞에 있는 것 — 지금 도는 것과, 나보다 먼저 요청된 대기 건.
     cur.execute(
         """
-        SELECT
-          count(*) FILTER (WHERE status = 'processing') AS running,
-          count(*) FILTER (
-            WHERE status = 'pending' AND requested_at < %s
-          ) AS waiting,
-          max(started_at) FILTER (WHERE status = 'processing') AS started
+        SELECT id::text, status, started_at
         FROM analysis_job
-        WHERE job_type = 'separation' AND status IN ('pending', 'processing')
+        WHERE job_type = 'separation'
+          AND (status = 'processing'
+               OR (status = 'pending' AND requested_at < %s))
+        ORDER BY started_at DESC NULLS LAST
         """,
         (job["requested_at"],),
     )
-    row = cur.fetchone() or {}
-    running = int(row.get("running") or 0)
-    waiting = int(row.get("waiting") or 0)
+    rows = cur.fetchall()
 
-    remaining = avg
-    if running and row.get("started"):
+    # 진짜로 도는 것은 아무리 많아도 슬롯 수만큼이다.
+    #
+    # processing 으로 남은 행이 그보다 많다면 죽은 작업이다. 워커가 일을
+    # 하다 재시작되면(배포가 대표적이다) 프로세스는 사라지는데 DB 의
+    # 상태는 그대로 남는다. 그걸 세면 "앞에 2개" 같은 거짓말을 하게 된다.
+    #
+    # 가장 나중에 시작한 것을 살아 있는 것으로 본다. 슬롯이 하나면 새
+    # 작업은 앞 것이 비워진 뒤에야 시작하기 때문이다.
+    processing = [r for r in rows if r["status"] == "processing"]
+    live = processing[:SEPARATION_SLOTS]
+    waiting = [r for r in rows if r["status"] == "pending"]
+
+    ahead = live + waiting
+    lengths = _durations(cur, [r["id"] for r in ahead] + [my_id])
+
+    eta = 0.0
+    for r in live:
+        total = lengths.get(r["id"], ASSUMED_DURATION) * rate
         cur.execute(
-            "SELECT EXTRACT(EPOCH FROM (now() - %s)) AS sec", (row["started"],)
+            "SELECT EXTRACT(EPOCH FROM (now() - %s)) AS sec", (r["started_at"],)
         )
         elapsed = float((cur.fetchone() or {}).get("sec") or 0)
-        remaining = max(0, avg - elapsed)
+        eta += max(0.0, total - elapsed)
+    for r in waiting:
+        eta += lengths.get(r["id"], ASSUMED_DURATION) * rate
+
+    # 내 곡을 도는 데 걸리는 시간.
+    own = lengths.get(my_id, ASSUMED_DURATION) * rate
 
     return {
-        "queue_position": running + waiting,
-        "eta_seconds": int(remaining + waiting * avg) if running else
-                       int(waiting * avg),
+        "queue_position": len(ahead),
+        # '내 차례가 올 때까지' 가 아니라 '내 것이 끝날 때까지' 다.
+        #
+        # 예전에는 대기 중일 때 앞사람 몫만 셌다. 그래서 내 차례가 되는
+        # 순간 숫자가 줄다 말고 다시 튀어 올랐다. 기다리는 사람이 알고
+        # 싶은 것은 결과를 언제 보느냐이지 언제 시작하느냐가 아니다.
+        "eta_seconds": int(eta + own),
+        "own_seconds": int(own),
     }
 
 

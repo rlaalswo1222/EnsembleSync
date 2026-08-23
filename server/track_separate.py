@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 import json
 import redis
+from celery.signals import worker_ready
 from database import get_db
 from celery_app import celery_app
 import track_analysis
@@ -56,6 +57,41 @@ def _mark_processing(job_id: str):
     except Exception as e:
         # 상태 표시가 안 되어도 분리 자체는 진행한다.
         print(f"[job] processing 표시 실패: {e}")
+
+
+@worker_ready.connect
+def _fail_orphaned_jobs(**_):
+    """워커가 새로 떴을 때 processing 으로 남아 있는 작업을 실패 처리한다.
+
+    분리 워커는 하나뿐이고 한 번에 하나만 돌린다(--concurrency=1). 그러니
+    방금 뜬 시점에 processing 인 행이 있다면 그것은 이 워커가 돌리던 것이
+    아니다. 죽은 기록이다.
+
+    배포할 때마다 생긴다. 컨테이너가 내려가면서 demucs 프로세스는 사라지는데
+    DB 의 상태는 그대로 남는다. 그 행 때문에 대기 순번이 "앞에 2개" 로
+    나오고, 사용자는 오지 않을 결과를 기다린다.
+
+    하루 한 번 도는 정리 작업에도 같은 처리가 있지만 그때까지 기다릴
+    이유가 없다. 여기서 즉시 털어낸다.
+
+    워커를 여러 대로 늘리면 이 가정이 깨진다. 그때는 워커 이름을 함께
+    기록해서 자기 것만 털어야 한다.
+    """
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE analysis_job SET status = 'failed', completed_at = now() "
+            "WHERE job_type = 'separation' AND status = 'processing'"
+        )
+        if cur.rowcount:
+            print(f"[worker] 끊긴 분리 작업 {cur.rowcount}건을 실패로 정리했다.")
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        # 정리에 실패해도 워커는 일을 받아야 한다.
+        print(f"[worker] 끊긴 작업 정리 실패: {e}")
 
 
 def _discard_previous_songs(room_id: str, keep_job_id: str) -> int:

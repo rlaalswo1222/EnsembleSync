@@ -1,6 +1,7 @@
 from fastapi import APIRouter, File, Request, UploadFile
 import psycopg2.extras
 import disk
+import audio_duration
 import ratelimit
 from database import get_db
 from config import (
@@ -100,10 +101,12 @@ async def upload_audio(
         # 6. DB에 audio_file 테이블 INSERT
         cur.execute(
             """
-            INSERT INTO audio_file (id, room_id, file_type, file_url, purpose, uploaded_at)
-            VALUES (%s, %s, %s, %s, %s, now())
+            INSERT INTO audio_file (id, room_id, file_type, file_url, purpose,
+                                    duration_sec, uploaded_at)
+            VALUES (%s, %s, %s, %s, %s, %s, now())
             """,
-            (audio_id, room_id, ext, file_url, purpose)
+            (audio_id, room_id, ext, file_url, purpose,
+             audio_duration.seconds(file_path))
         )
         touch_room(cur, room_id)
         conn.commit()

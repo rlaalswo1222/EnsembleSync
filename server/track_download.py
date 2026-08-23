@@ -2,6 +2,7 @@ from fastapi import APIRouter, File, Form, Request, UploadFile
 from fastapi.responses import FileResponse
 import psycopg2.extras
 import disk
+import audio_duration
 import ratelimit
 from database import get_db
 from celery_app import celery_app
@@ -81,9 +82,12 @@ async def request_track_separation(
 
         # DB 에는 상대경로로 저장한다 (서버 주소가 바뀌어도 레코드 수정 불필요)
         file_url = f"/uploads/audio/{room_id}/{audio_id}.{ext}"
+        # 길이를 함께 남긴다. 대기 중인 사람에게 남은 시간을 알려줄 때
+        # 이 값이 있어야 한다 — 분리 시간은 곡 길이에 거의 정비례한다.
         cur.execute(
-            "INSERT INTO audio_file (id, room_id, file_type, file_url, purpose, uploaded_at) VALUES (%s, %s, %s, %s, 'separation', now())",
-            (audio_id, room_id, ext, file_url)
+            "INSERT INTO audio_file (id, room_id, file_type, file_url, purpose, "
+            "duration_sec, uploaded_at) VALUES (%s, %s, %s, %s, 'separation', %s, now())",
+            (audio_id, room_id, ext, file_url, audio_duration.seconds(file_path))
         )
 
         job_id = str(uuid.uuid4())
