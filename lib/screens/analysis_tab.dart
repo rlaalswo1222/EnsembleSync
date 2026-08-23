@@ -171,6 +171,9 @@ class _AnalysisTabState extends State<AnalysisTab> {
   }
 
   /// '약 12분' 처럼 사람이 읽는 형태. 초 단위까지 보여줄 이유가 없다.
+  ///
+  /// 곡 길이로 계산한 값이라 예전보다 훨씬 잘 맞지만 그래도 어림이다.
+  /// '약' 을 붙여 두는 편이 정직하다.
   static String _etaLabel(int seconds) {
     if (seconds < 60) return '1분 이내';
     final minutes = (seconds / 60).ceil();
@@ -879,8 +882,10 @@ class _AnalysisTabState extends State<AnalysisTab> {
     if (position == null && eta == null) return const SizedBox.shrink();
 
     final parts = <String>[
-      if (position != null && position > 0) '앞에 $position개 대기',
-      if (eta != null && eta > 0) _etaLabel(eta),
+      if (position != null && position > 0) '앞에 $position곡 대기',
+      // '완료까지' 라고 못박는다. 내 차례가 오는 시각인지 결과가 나오는
+      // 시각인지 헷갈리면 숫자가 맞아도 틀린 것처럼 느껴진다.
+      if (eta != null && eta > 0) '완료까지 ${_etaLabel(eta)}',
     ];
     if (parts.isEmpty) return const SizedBox.shrink();
 
