@@ -10,10 +10,24 @@ class ApiService {
 
   final _client = http.Client();
 
+  /// 지금 들어가 있는 방의 열쇠.
+  ///
+  /// 방 코드는 한 번 쓰는 초대장이고, 그 뒤의 모든 요청은 이 토큰으로
+  /// 확인받는다. 방에 들어갈 때 채우고 나올 때 비운다.
+  ///
+  /// 한 번에 한 방만 열어두므로 여기 하나면 된다. 여러 방을 동시에 여는
+  /// 날이 오면 방마다 들고 다녀야 한다.
+  static String? roomToken;
+
   Map<String, String> get _headers => {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
+        if (roomToken != null) 'X-Room-Token': roomToken!,
       };
+
+  /// 본문이 JSON 이 아닌 요청(파일 주고받기)에 붙일 헤더.
+  static Map<String, String> get authHeaders =>
+      roomToken == null ? const {} : {'X-Room-Token': roomToken!};
 
   // ── 방 만들기 ──────────────────────────────────────────────
   Future<Map<String, dynamic>> createRoom(
@@ -61,6 +75,7 @@ class ApiService {
       String roomId, Uint8List bytes, String filename) async {
     final uri = Uri.parse('${ApiConstants.baseUrl}/api/score/$roomId/upload');
     final request = http.MultipartRequest('POST', uri)
+      ..headers.addAll(authHeaders)
       ..files
           .add(http.MultipartFile.fromBytes('file', bytes, filename: filename));
     final streamed = await request.send().timeout(const Duration(seconds: 30));
@@ -76,8 +91,11 @@ class ApiService {
     final uri = fileUrl.startsWith('http')
         ? Uri.parse(fileUrl)
         : Uri.parse('${ApiConstants.baseUrl}$fileUrl');
-    final response =
-        await _client.get(uri).timeout(const Duration(seconds: 20));
+    // 업로드 파일은 서명된 주소로 받는다. 서명 안에 자격이 들어 있어
+    // 토큰이 꼭 필요하지는 않지만, 붙여 두면 서명을 끄더라도 그대로 돈다.
+    final response = await _client
+        .get(uri, headers: authHeaders)
+        .timeout(const Duration(seconds: 20));
     if (response.statusCode == 200) return response.bodyBytes;
     throw ApiException(response.statusCode, '이미지 다운로드 실패');
   }
@@ -86,8 +104,9 @@ class ApiService {
     final uri = fileUrl.startsWith('http')
         ? Uri.parse(fileUrl)
         : Uri.parse('${ApiConstants.baseUrl}$fileUrl');
-    final response =
-        await _client.get(uri).timeout(const Duration(seconds: 30));
+    final response = await _client
+        .get(uri, headers: authHeaders)
+        .timeout(const Duration(seconds: 30));
     if (response.statusCode == 200) return response.bodyBytes;
     throw ApiException(response.statusCode, '트랙 다운로드 실패');
   }
@@ -130,6 +149,7 @@ class ApiService {
     final uri = Uri.parse('${ApiConstants.baseUrl}/api/audio/$roomId/upload')
         .replace(queryParameters: {'purpose': purpose});
     final request = http.MultipartRequest('POST', uri)
+      ..headers.addAll(authHeaders)
       ..files
           .add(http.MultipartFile.fromBytes('file', bytes, filename: filename));
     final streamed = await request.send().timeout(const Duration(seconds: 30));
@@ -148,6 +168,7 @@ class ApiService {
   }) async {
     final uri = Uri.parse('${ApiConstants.baseUrl}/api/track/separate');
     final request = http.MultipartRequest('POST', uri)
+      ..headers.addAll(authHeaders)
       ..fields['room_id'] = roomId
       ..files
           .add(http.MultipartFile.fromBytes('file', bytes, filename: filename));

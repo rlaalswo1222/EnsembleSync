@@ -74,11 +74,15 @@ class _HomeScreenState extends State<HomeScreen>
       final result = await ApiService()
           .createRoom(roomName, _nicknameController.text.trim());
 
+      // 이 방의 열쇠. 이후 모든 요청이 이걸로 확인받는다.
+      ApiService.roomToken = result['room_token'] as String?;
+
       await RecentRooms.remember(
         roomId: result['room_id']?.toString() ?? '',
         roomCode: result['room_code'] as String,
         roomName: roomName,
         nickname: _nicknameController.text.trim(),
+        token: result['room_token'] as String? ?? '',
       );
       if (!mounted) return;
       FocusScope.of(context).unfocus();
@@ -126,12 +130,30 @@ class _HomeScreenState extends State<HomeScreen>
     if (_isLoading) return;
     setState(() => _isLoading = true);
     try {
-      final result = await ApiService().joinRoom(room.roomCode, room.nickname);
+      // 열쇠를 이미 들고 있으면 다시 입장 요청을 하지 않는다.
+      //
+      // 예전에는 목록에서 누를 때마다 join 을 불렀고, 그때마다 member 와
+      // room_participant 행이 새로 쌓였다. 같은 사람이 다섯 번 들어가면
+      // 참가자가 다섯 명이 되는 셈이었다.
+      String roomId = room.roomId;
+      String roomName = room.roomName;
+
+      if (room.token.isEmpty) {
+        final result =
+            await ApiService().joinRoom(room.roomCode, room.nickname);
+        ApiService.roomToken = result['room_token'] as String?;
+        roomId = result['room_id']?.toString() ?? room.roomId;
+        roomName = result['room_name']?.toString() ?? room.roomName;
+      } else {
+        ApiService.roomToken = room.token;
+      }
+
       await RecentRooms.remember(
-        roomId: room.roomId,
+        roomId: roomId,
         roomCode: room.roomCode,
-        roomName: result['room_name']?.toString() ?? room.roomName,
+        roomName: roomName,
         nickname: room.nickname,
+        token: ApiService.roomToken ?? '',
       );
       if (!mounted) return;
       Navigator.pushAndRemoveUntil(
@@ -140,7 +162,7 @@ class _HomeScreenState extends State<HomeScreen>
           builder: (_) => MainScreen(
             nickname: room.nickname,
             roomCode: room.roomCode,
-            roomId: result['room_id']?.toString() ?? room.roomId,
+            roomId: roomId,
           ),
         ),
         (route) => false,

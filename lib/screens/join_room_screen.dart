@@ -46,11 +46,14 @@ class _JoinRoomScreenState extends State<JoinRoomScreen> {
       final enteredCode = _codeController.text.toUpperCase();
       final result = await ApiService().joinRoom(enteredCode, widget.nickname);
 
+      ApiService.roomToken = result['room_token'] as String?;
+
       await RecentRooms.remember(
         roomId: result['room_id']?.toString() ?? '',
         roomCode: enteredCode,
         roomName: result['room_name']?.toString() ?? '',
         nickname: widget.nickname,
+        token: result['room_token'] as String? ?? '',
       );
       if (!mounted) return;
       Navigator.pushAndRemoveUntil(
