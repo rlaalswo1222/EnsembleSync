@@ -25,6 +25,7 @@ class MixerWorkspace extends StatefulWidget {
     this.bpmResult,
     this.bpmPending = false,
     this.audioUrl,
+    this.onUrlsExpired,
   });
 
   final List<TrackResult> tracks;
@@ -40,6 +41,11 @@ class MixerWorkspace extends StatefulWidget {
 
   /// 업로드된 원본 음원 주소. BPM 상세 화면의 재생에 쓴다.
   final String? audioUrl;
+
+  /// 파일 주소가 만료돼 못 불러왔을 때 부른다. 상위 화면이 서버에서 새
+  /// 주소를 받아오면 트랙 주소가 바뀌고, 그러면 이 위젯이 통째로 다시
+  /// 만들어지면서(key 가 주소로 되어 있다) 저절로 다시 시도된다.
+  final Future<void> Function()? onUrlsExpired;
 
   @override
   State<MixerWorkspace> createState() => _MixerWorkspaceState();
@@ -73,6 +79,9 @@ class _MixerWorkspaceState extends State<MixerWorkspace> {
   /// 않도록, 끄는 중에는 이 값을 우선한다.
   double? _scrub;
 
+  /// 이번 위젯에서 이미 새 주소를 요청했는가.
+  bool _askedForNewUrls = false;
+
   @override
   void initState() {
     super.initState();
@@ -96,6 +105,21 @@ class _MixerWorkspaceState extends State<MixerWorkspace> {
 
   void _onEngineChanged() {
     if (mounted) setState(() {});
+    if (_engine.error != null) _recoverFromLoadFailure();
+  }
+
+  /// 트랙을 못 불러왔을 때 주소를 새로 받아 한 번 더 해본다.
+  ///
+  /// 실패 이유가 주소 만료인지 네트워크 문제인지는 여기서 알 수 없다.
+  /// SoLoud 는 그냥 못 불러왔다고만 알려준다. 둘 다 주소를 새로 받아
+  /// 다시 해보면 나아질 수 있는 일이라 구분하지 않는다.
+  ///
+  /// 되풀이는 상위 화면이 막는다. 여기서 세면 안 되는데, 주소가 바뀌면
+  /// 이 위젯 자체가 새로 만들어져서 센 값이 사라지기 때문이다.
+  void _recoverFromLoadFailure() {
+    if (_askedForNewUrls || widget.onUrlsExpired == null) return;
+    _askedForNewUrls = true;
+    widget.onUrlsExpired!();
   }
 
   /// analysis.json 의 피크는 스템 이름으로 묶여 있다. 파일명에서 그 이름을
@@ -112,7 +136,13 @@ class _MixerWorkspaceState extends State<MixerWorkspace> {
     try {
       final http.Response res =
           await http.get(Uri.parse(url)).timeout(const Duration(seconds: 10));
-      if (res.statusCode != 200 || !mounted) return;
+      if (!mounted) return;
+      // 410 은 주소의 유효기간이 지났다는 뜻이다. 새로 받아오면 살아난다.
+      if (res.statusCode == 410) {
+        _recoverFromLoadFailure();
+        return;
+      }
+      if (res.statusCode != 200) return;
       final TrackAnalysis? parsed = TrackAnalysis.tryParse(res.body);
       setState(() {
         _analysis = parsed;
@@ -195,6 +225,20 @@ class _MixerWorkspaceState extends State<MixerWorkspace> {
           ),
         ),
       );
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      // 410 은 주소의 유효기간이 지났다는 뜻이다. 파일은 서버에 그대로
+      // 있으니, 새 주소를 받아 다시 누르면 된다고 알려준다.
+      if (e.statusCode == 410) {
+        _recoverFromLoadFailure();
+        messenger.showSnackBar(
+          const SnackBar(content: Text('주소를 새로 받았습니다. 다시 눌러주세요.')),
+        );
+      } else {
+        messenger.showSnackBar(
+          SnackBar(content: Text('트랙 다운로드 실패: ${e.message}')),
+        );
+      }
     } catch (e) {
       if (!mounted) return;
       messenger.showSnackBar(

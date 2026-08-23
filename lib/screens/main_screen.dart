@@ -60,12 +60,27 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   String? _loadingScoreUrl;
   String? _loadedScoreUrl;
 
+  /// 주소에서 파일 경로만 남긴다.
+  ///
+  /// 서버가 주는 주소에는 유효기간 서명이 쿼리로 붙어 있다. 같은 악보라도
+  /// 받을 때마다 뒤가 달라지므로, "이미 불러온 파일인가" 를 통째로 비교하면
+  /// 매번 새 파일로 보인다. 확장자를 볼 때도 마찬가지다 — 주소 끝이
+  /// sig 값이라 .pdf 로 끝나지 않는다.
+  static String _fileKey(String url) {
+    final Uri? parsed = Uri.tryParse(url);
+    return parsed == null || parsed.path.isEmpty ? url : parsed.path;
+  }
+
   int _tabIndex = 0;
 
   /// 스템 이름 → (화면 이름, 아이콘). 순서가 곧 화면에 쌓이는 순서다.
   ///
-  /// 'other' 를 '기타'로 부르던 때가 있었는데, 6트랙 모델부터는 진짜 기타가
-  /// 따로 나온다. 겹치지 않게 '나머지'로 바꿨다.
+  /// 'other' 를 '기타'로 부르던 때가 있었다. 지금 쓰는 4트랙 모델에서
+  /// 이 트랙은 기타뿐 아니라 건반·현악까지 남은 것을 전부 담으므로
+  /// '나머지'가 맞다.
+  ///
+  /// guitar·piano 는 6트랙 모델로 되돌릴 때를 위해 남겨둔다. 서버가 안
+  /// 주면 화면에도 안 나온다.
   static const Map<String, (String, IconData)> _stemLabels =
       <String, (String, IconData)>{
     'vocals': ('보컬', Icons.mic_rounded),
@@ -82,6 +97,17 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   Uint8List? _audioBytes;
   // 업로드된 음원 주소. 웹에서는 바이트 재생이 불가해 이 주소로 재생한다.
   String? _audioUrl;
+
+  /// 마지막으로 파일 주소를 새로 받아온 시각. 되풀이를 막는 데 쓴다.
+  DateTime? _lastUrlRefresh;
+
+  /// 믹서를 처음부터 다시 만들라는 신호.
+  ///
+  /// 주소를 새로 받으면 서명이 달라져서 문자열이 매번 바뀐다. 결과 탭이
+  /// 주소를 그대로 key 에 쓰면 앱으로 돌아올 때마다 트랙 수십 MB 를 다시
+  /// 받게 된다. 그래서 key 는 파일 경로로 고정하고, 정말 다시 불러와야 할
+  /// 때만 이 값을 올린다.
+  int _mixerReloadToken = 0;
 
   String? _bpmJobId;
   BpmResult? _bpmResult;
@@ -116,6 +142,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     // 화면이 꺼져 있는 동안 연결이 끊기곤 한다. 돌아오면 확인해서 다시 붙는다.
     if (state == AppLifecycleState.resumed) {
       _ws.ensureConnected();
+      // 파일 주소도 그새 만료됐을 수 있다. 재생을 누르고 나서 실패하는
+      // 것보다 돌아온 김에 새로 받아두는 편이 낫다.
+      unawaited(_refreshFileUrls());
     }
   }
 
@@ -256,23 +285,24 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _loadScoreFromUrl(String fileUrl) async {
-    if (_loadingScoreUrl == fileUrl || _loadedScoreUrl == fileUrl) return;
-    _loadingScoreUrl = fileUrl;
+    final String key = _fileKey(fileUrl);
+    if (_loadingScoreUrl == key || _loadedScoreUrl == key) return;
+    _loadingScoreUrl = key;
     try {
       final bytes = await ApiService().downloadScore(fileUrl);
       if (!mounted) return;
-      if (fileUrl.toLowerCase().endsWith('.pdf')) {
+      if (key.toLowerCase().endsWith('.pdf')) {
         final loaded = await _loadPdfPages(bytes);
         if (!loaded) return;
       } else {
         await _showImageScore(bytes);
       }
-      _loadedScoreUrl = fileUrl;
+      _loadedScoreUrl = key;
     } catch (e) {
       debugPrint('Score download failed: $e');
       if (mounted) _showSnack('악보를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.');
     } finally {
-      if (_loadingScoreUrl == fileUrl) _loadingScoreUrl = null;
+      if (_loadingScoreUrl == key) _loadingScoreUrl = null;
     }
   }
 
@@ -406,7 +436,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     try {
       final fileUrl =
           await ApiService().uploadScore(widget.roomId, bytes, filename);
-      _loadedScoreUrl = fileUrl;
+      _loadedScoreUrl = _fileKey(fileUrl);
     } catch (e) {
       if (mounted) _showSnack('업로드 실패: $e');
     }
@@ -774,7 +804,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   /// 악보와 필기는 원래 API 로 복원하는데 음원과 분석은 WebSocket 알림에만
   /// 기대고 있었다. 알림은 지나가면 끝이라 나중에 들어온 사람은 빈 화면을
   /// 봤다. 서버에는 있는데 볼 길이 없었던 셈이다.
-  Future<void> _restoreRoomContents() async {
+  Future<void> _restoreRoomContents({bool switchTab = true}) async {
     if (widget.roomId.isEmpty) return;
     try {
       final data = await ApiService().getRoomLatest(widget.roomId);
@@ -792,7 +822,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         // 복원은 새 분석이 아니다. BPM 을 기다리는 표시를 띄우면 안 된다.
         setState(() {
           _bpmPending = false;
-          _tabIndex = 0;
+          // 주소만 새로 받는 경우에는 보던 화면을 그대로 둔다. 앱으로
+          // 돌아올 때마다 악보 탭으로 끌려가면 안 된다.
+          if (switchTab) _tabIndex = 0;
         });
       }
 
@@ -803,6 +835,43 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       }
     } catch (_) {
       // 복원에 실패해도 방은 쓸 수 있다. 새로 분석하면 채워진다.
+    }
+  }
+
+  /// 파일 주소가 만료됐을 때 새로 받아온다.
+  ///
+  /// 서버가 내려주는 음원·트랙 주소에는 유효기간이 있다. 링크가 새어
+  /// 나가도 하루 뒤에는 죽게 하려는 것인데, 그 대신 앱을 오래 켜둔 채
+  /// 재생을 누르면 만료된 주소를 쥐고 있을 수 있다. 그때 다시 물어보면
+  /// 서버가 그 자리에서 새로 서명해서 준다. 파일도 분석 결과도 그대로라
+  /// 다시 분석하는 일은 없다.
+  ///
+  /// 짧은 간격으로 거듭 부르지 않는다. 주소를 새로 받아도 여전히 실패하는
+  /// 상황(서버가 멈췄다든가)에서 끝없이 되풀이하게 된다.
+  Future<void> _refreshFileUrls() async {
+    final now = DateTime.now();
+    if (_lastUrlRefresh != null &&
+        now.difference(_lastUrlRefresh!) < const Duration(seconds: 30)) {
+      return;
+    }
+    _lastUrlRefresh = now;
+    await _restoreRoomContents(switchTab: false);
+  }
+
+  /// 트랙을 못 불러왔을 때. 주소를 새로 받고 믹서를 다시 만들게 한다.
+  ///
+  /// 앱으로 돌아왔을 때 하는 갱신과 갈라 둔다. 그쪽은 주소만 조용히
+  /// 새것으로 바꾸면 되지만, 이쪽은 이미 실패한 뒤라 실제로 다시 받아야
+  /// 한다.
+  Future<void> _recoverFileUrls() async {
+    final String before = _tracks.map((t) => t.url).join('|');
+    await _refreshFileUrls();
+    if (!mounted) return;
+    // 주소가 그대로면 다시 만들어도 같은 자리에서 또 실패한다. 실패가
+    // 다시 이 함수를 부르므로 그대로 두면 끝없이 돈다. 갱신이 실제로
+    // 새 주소를 가져왔을 때만 다시 만든다.
+    if (_tracks.map((t) => t.url).join('|') != before) {
+      setState(() => _mixerReloadToken++);
     }
   }
 
@@ -1002,6 +1071,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           bpmResult: _bpmResult,
           bpmPending: _bpmPending,
           preferredMode: _preferredResultMode,
+          onUrlsExpired: _recoverFileUrls,
+          reloadToken: _mixerReloadToken,
         ),
       ],
     );

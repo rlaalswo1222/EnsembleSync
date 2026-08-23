@@ -22,6 +22,12 @@ class ResultTab extends StatefulWidget {
   final BpmResult? bpmResult;
   final ResultMode? preferredMode;
 
+  /// 파일 주소가 만료됐을 때 새로 받아오라고 부르는 곳.
+  final Future<void> Function()? onUrlsExpired;
+
+  /// 이 값이 바뀌면 믹서를 처음부터 다시 만든다.
+  final int reloadToken;
+
   const ResultTab({
     super.key,
     required this.tracks,
@@ -33,6 +39,8 @@ class ResultTab extends StatefulWidget {
     this.bpmJobId,
     this.bpmResult,
     this.preferredMode,
+    this.onUrlsExpired,
+    this.reloadToken = 0,
   });
 
   @override
@@ -121,14 +129,20 @@ class _ResultTabState extends State<ResultTab> {
         return MixerWorkspace(
           // 트랙 목록이 바뀌면 엔진을 처음부터 다시 만든다. 이전 곡의
           // 오디오가 남아 있으면 새 곡과 겹쳐서 재생된다.
+          //
+          // 주소가 아니라 경로로 가른다. 주소에는 유효기간 서명이 붙어
+          // 있어서 새로 받을 때마다 문자열이 달라지는데, 그것까지 세면
+          // 같은 곡인데도 트랙을 통째로 다시 받게 된다.
           key: ValueKey<String>(
-            widget.tracks.map((TrackResult t) => t.url).join('|'),
+            '${widget.tracks.map((TrackResult t) => Uri.tryParse(t.url)?.path ?? t.url).join('|')}'
+            '#${widget.reloadToken}',
           ),
           tracks: widget.tracks,
           analysisUrl: widget.analysisUrl,
           bpmResult: _bpmResult,
           bpmPending: widget.bpmPending && _bpmResult == null,
           audioUrl: widget.audioUrl,
+          onUrlsExpired: widget.onUrlsExpired,
         );
       case ResultMode.empty:
         return const _EmptyResultView();

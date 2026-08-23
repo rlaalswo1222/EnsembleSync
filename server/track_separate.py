@@ -15,10 +15,18 @@ from config import REDIS_HOST, REDIS_PORT, local_upload_path, public_url
 # Redis 클라이언트 (pub/sub용)
 redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0, decode_responses=True)
 
-# demucs 모델. htdemucs_6s 는 기본 4트랙에 기타와 피아노를 더해 6개를 낸다.
-DEMUCS_MODEL = "htdemucs_6s"
+# demucs 모델.
+#
+# htdemucs_6s 는 기타와 피아노를 더해 6개를 내지만, 그 두 개를 얻는 대가가
+# 컸다. 분리 시간이 늘고 결과가 300MB 를 넘어가는데, 정작 갈라놓은 기타와
+# 피아노가 서로 새어 들어가 쓸 만하지 않았다. 4트랙 쪽이 각 트랙의 품질이
+# 낫고 빠르다.
+#
+# 되돌리려면 이 두 줄만 바꾸면 된다. 앱은 서버가 주는 트랙을 그대로
+# 보여주고, 분석 쪽도 없는 스템은 건너뛰도록 되어 있다.
+DEMUCS_MODEL = "htdemucs"
 
-STEM_NAMES = ["vocals", "drums", "bass", "guitar", "piano", "other"]
+STEM_NAMES = ["vocals", "drums", "bass", "other"]
 
 # 재생용 mp3 의 비트레이트. 분리 트랙은 원래 완벽한 음질이 아니라 192k 면 충분하다.
 MP3_BITRATE = "192k"

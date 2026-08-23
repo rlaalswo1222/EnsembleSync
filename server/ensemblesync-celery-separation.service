@@ -7,7 +7,7 @@ Type=simple
 User=ubuntu
 WorkingDirectory=/home/ubuntu/server
 EnvironmentFile=/home/ubuntu/.env
-ExecStart=/home/ubuntu/~ensemble/venv/bin/celery -A track_separate.celery_app worker --loglevel=info -Q separation
+ExecStart=/home/ubuntu/~ensemble/venv/bin/celery -A track_separate.celery_app worker --loglevel=info -Q separation --concurrency=1
 Restart=always
 RestartSec=5
 

@@ -101,6 +101,15 @@ class MixerEngine extends ChangeNotifier {
           _soloud.filters.pitchShiftFilter.activate();
         }
         _pitchAvailable = _soloud.filters.pitchShiftFilter.isActive;
+
+        // 필터는 SoLoud 하나에 붙어 있고, 이 객체는 곡마다 새로 만들어진다.
+        // 그래서 앞 곡에서 올려둔 키가 필터에 그대로 남는다. 이쪽 _semitones
+        // 는 0 으로 시작하므로 화면은 '원키'라고 하는데 소리는 올라간
+        // 채였다. 남은 값을 믿지 말고 매번 이쪽 값을 써 넣는다.
+        if (_pitchAvailable) {
+          _soloud.filters.pitchShiftFilter.semitones.value =
+              _semitones.toDouble();
+        }
       } catch (_) {
         _pitchAvailable = false;
       }

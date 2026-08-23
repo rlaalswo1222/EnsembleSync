@@ -615,7 +615,7 @@ class _AnalysisTabState extends State<AnalysisTab> {
     (
       Icons.graphic_eq_rounded,
       '세션 별 음원트랙 분리',
-      '보컬 · 드럼 · 베이스 · 기타 · 피아노',
+      '보컬 · 드럼 · 베이스 · 나머지',
     ),
     (Icons.tune_rounded, '트랙별 조절', '볼륨 · 음소거 · 솔로'),
     (Icons.piano_rounded, '키 조절', '±7 키 변경'),
