@@ -29,6 +29,9 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <!-- image_cropper (uCrop). 한 번만 적는다 — 두 번 적으면 릴리스
+             빌드의 lint 가 DuplicateActivity 로 막는다. 게다가 두 선언의
+             속성은 합쳐지지 않아서 앞의 것이 조용히 사라진다. -->
         <activity
             android:name="com.yalantis.ucrop.UCropActivity"
             android:screenOrientation="portrait"
@@ -38,11 +41,6 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
-        <!-- image_cropper (uCrop) -->
-        <activity
-            android:name="com.yalantis.ucrop.UCropActivity"
-            android:screenOrientation="portrait"
-            android:theme="@style/Theme.AppCompat.Light.NoActionBar"/>
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and
