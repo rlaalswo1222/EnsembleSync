@@ -3,6 +3,8 @@ from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 
+import signing
+
 load_dotenv()
 
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "http://localhost:8000").rstrip("/")
@@ -11,11 +13,26 @@ REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
 
 
+def signed_path(path: str) -> str:
+    """`/uploads/...` 상대 경로에 유효기간 서명을 붙인다.
+
+    앱이 절대 주소 대신 상대 경로를 받아 쓰는 자리(악보)가 있어서 따로
+    둔다. 서명은 경로에 대해 걸리므로 여기서 붙이나 public_url 에서
+    붙이나 같은 값이 나온다.
+    """
+    return signing.sign_path(path)
+
+
 def public_url(path: str) -> str:
-    return f"{PUBLIC_BASE_URL}/{path.lstrip('/')}"
+    return f"{PUBLIC_BASE_URL}/{signing.sign_path(path).lstrip('/')}"
 
 
 def normalize_public_url(url: str) -> str:
+    """DB 에 담긴 경로나 예전 절대 주소를 지금 서버의 서명된 주소로 바꾼다.
+
+    쿼리는 버리고 경로만 남긴다. 이미 서명이 붙어 있던 주소를 다시 넣어도
+    서명이 겹치지 않게 하려는 것이다.
+    """
     path = urlparse(url).path
     return public_url(path) if path else url
 

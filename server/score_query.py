@@ -1,7 +1,7 @@
 from fastapi import APIRouter
 import psycopg2.extras
 from database import get_db
-from config import REDIS_HOST, REDIS_PORT
+from config import REDIS_HOST, REDIS_PORT, signed_path
 import json
 import redis
 
@@ -53,7 +53,9 @@ async def get_latest_score(room_id: str):
         row = cur.fetchone()
         cur.close()
         if row:
-            return {"status": 200, "file_url": row["file_url"]}
+            # DB 에는 서명 없는 경로가 담겨 있다. 내보낼 때마다 새로
+            # 서명한다 — 그래야 오래된 방에 다시 들어와도 바로 열린다.
+            return {"status": 200, "file_url": signed_path(row["file_url"])}
         return {"status": 200, "file_url": None}
     except Exception as e:
         return {"status": 500, "message": str(e)}

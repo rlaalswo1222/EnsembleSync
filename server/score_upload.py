@@ -3,7 +3,7 @@ import psycopg2.extras
 import disk
 import ratelimit
 from database import get_db
-from config import REDIS_HOST, REDIS_PORT, touch_room
+from config import REDIS_HOST, REDIS_PORT, signed_path, touch_room
 import uuid
 import shutil
 import os
@@ -74,14 +74,14 @@ async def upload_score(
             "type": "score_uploaded",
             "room_id": room_id,
             "score_id": score_id,
-            "file_url": file_url,
+            "file_url": signed_path(file_url),
         })
 
         return {
             "status": 200,
             "room_id": room_id,
             "score_id": score_id,
-            "file_url": file_url,
+            "file_url": signed_path(file_url),
             "message": "악보가 성공적으로 업로드되었습니다."
         }
 
