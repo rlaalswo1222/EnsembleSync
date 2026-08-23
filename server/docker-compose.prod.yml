@@ -18,6 +18,10 @@ x-backend-env: &backend-env
   REDIS_HOST: localhost
   REDIS_PORT: 6379
   PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
+  # 파일 주소 서명 열쇠. 비워두면 uploads/.signing_key 에 스스로 만들어
+  # 쓴다(api 와 워커가 그 폴더를 함께 쓰므로 같은 값을 보게 된다). 서버를
+  # 여러 대로 늘리거나 열쇠를 갈아야 할 때만 여기서 지정한다.
+  FILE_SIGNING_SECRET: ${FILE_SIGNING_SECRET:-}
 
 x-logging: &logging
   # 도커 로그가 무한정 쌓여 디스크를 잠식하는 것을 막는다
@@ -56,7 +60,21 @@ services:
     # export 하려다 "image already exists" 로 빌드가 실패한다.
     image: ensemblesync-worker
     pull_policy: never
-    command: celery -A track_separate.celery_app worker --loglevel=info -Q separation -n separation@%h
+    # --concurrency=1 을 반드시 준다. 안 주면 Celery 가 코어 수만큼(여기서는
+    # 2개) 프로세스를 띄워 곡 두 개를 동시에 돌린다.
+    #
+    # 실측(3분 20초 곡, htdemucs, 2 OCPU):
+    #   혼자      302초  코어 1.85개 사용  메모리 2.0GB
+    #   동시 둘   584초  각 0.98개        메모리 4.1GB
+    #
+    # demucs 는 혼자서도 코어를 거의 다 쓴다. 둘을 겹쳐도 같은 코어를 나눠
+    # 가질 뿐이라 두 곡 처리에 604초 대신 584초, 3% 빨라지는 게 전부다.
+    # 그 3% 를 얻자고 첫 사람의 대기가 302초에서 584초로 늘고 메모리가 두
+    # 배가 된다. 남는 장사가 아니다.
+    #
+    # 대기 순번·예상 시간 계산(audio_analysis._queue_info)도 한 번에 하나를
+    # 전제로 짜여 있다.
+    command: celery -A track_separate.celery_app worker --loglevel=info -Q separation -n separation@%h --concurrency=1
     network_mode: host
     environment: *backend-env
     volumes:
