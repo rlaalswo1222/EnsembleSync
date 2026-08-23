@@ -11,6 +11,7 @@ import '../models/bpm_result.dart';
 import '../models/stroke.dart';
 import '../models/track_result.dart';
 import '../services/api_service.dart';
+import '../services/recent_rooms.dart';
 import '../services/platform_share.dart';
 import '../services/score_pdf_document.dart';
 import '../services/score_pdf_renderer.dart';
@@ -100,6 +101,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
   /// 마지막으로 파일 주소를 새로 받아온 시각. 되풀이를 막는 데 쓴다.
   DateTime? _lastUrlRefresh;
+
+  /// 방을 빠져나가는 중. 여러 요청이 한꺼번에 401 을 받아도 한 번만 돈다.
+  bool _leaving = false;
 
   /// 믹서를 처음부터 다시 만들라는 신호.
   ///
@@ -893,9 +897,29 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         _roomMb = (data['total_mb'] as num?)?.toDouble() ?? 0;
         _showExpiryBanner = data['warn'] == true;
       });
+    } on ApiException catch (e) {
+      // 이 방의 열쇠가 더 이상 통하지 않는다. 방이 정리됐거나 토큰이
+      // 무효가 된 것이다. 빈 화면을 붙들고 있게 두지 말고 되돌린다.
+      if (e.statusCode == 401) _leaveRoom();
     } catch (_) {
       // 안내를 못 띄우는 것뿐이다. 방을 쓰는 데는 지장이 없다.
     }
+  }
+
+  /// 열쇠가 통하지 않을 때 첫 화면으로 되돌린다.
+  ///
+  /// 이 방은 목록에서도 지운다. 남겨두면 눌러도 들어가지지 않는 항목이
+  /// 계속 보인다.
+  Future<void> _leaveRoom() async {
+    if (_leaving) return;
+    _leaving = true;
+    await RecentRooms.forget(widget.roomId);
+    ApiService.roomToken = null;
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('방에 접근할 수 없습니다. 방 코드로 다시 입장해주세요.')),
+    );
+    Navigator.of(context).popUntil((route) => route.isFirst);
   }
 
   Future<void> _keepRoom() async {

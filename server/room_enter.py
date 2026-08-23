@@ -3,6 +3,7 @@ from pydantic import BaseModel
 import psycopg2
 import psycopg2.extras
 import ratelimit
+import room_auth
 from database import get_db
 
 router = APIRouter()
@@ -49,6 +50,9 @@ async def join_room(http: Request, request: RoomJoinRequest):
             "INSERT INTO room_participant (room_id, member_id, role) VALUES (%s, %s, 'member')",
             (room['id'], member_id)
         )
+        # 이 기기의 열쇠. 방 코드는 여기까지만 쓰이고, 이후 요청은 전부
+        # 이 토큰으로 확인한다.
+        token = room_auth.issue(cur, room['id'], member_id)
 
         # 입장은 활동으로 세지 않는다.
         #
@@ -59,7 +63,13 @@ async def join_room(http: Request, request: RoomJoinRequest):
         # 음원 업로드·분석 요청·악보 업로드만 활동으로 센다.
         conn.commit()
         cur.close()
-        return {"status": 200, "room_name": room['name'], "room_id": str(room['id']), "message": "입장에 성공했습니다."}
+        return {
+            "status": 200,
+            "room_name": room['name'],
+            "room_id": str(room['id']),
+            "room_token": token,
+            "message": "입장에 성공했습니다.",
+        }
 
     except Exception as e:
         if conn:

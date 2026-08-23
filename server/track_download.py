@@ -4,6 +4,7 @@ import psycopg2.extras
 import disk
 import audio_duration
 import ratelimit
+import room_auth
 from database import get_db
 from celery_app import celery_app
 from config import (
@@ -61,6 +62,10 @@ async def request_track_separation(
 
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        denied = room_auth.require(cur, http, room_id)
+        if denied:
+            return denied
 
         cur.execute("SELECT id FROM room WHERE id = %s", (room_id,))
         if not cur.fetchone():
@@ -144,7 +149,7 @@ async def request_track_separation(
             conn.close()
 
 @router.get("/api/track/{job_id}/list")
-async def get_track_list(job_id: str):
+async def get_track_list(http: Request, job_id: str):
     """분리 결과 조회.
 
     분리가 끝났다는 알림은 Redis pub/sub 으로 나가는데, 그건 재전송이 없다.
@@ -163,6 +168,14 @@ async def get_track_list(job_id: str):
     try:
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        # job_id 만으로 결과를 내주면 안 된다. 그 작업이 어느 방의 것인지
+        # 찾아서 그 방 사람인지 확인한다.
+        denied = room_auth.require(
+            cur, http, room_auth.room_of_job(cur, job_id)
+        )
+        if denied:
+            return denied
 
         cur.execute(
             "SELECT id, room_id, status FROM analysis_job WHERE id = %s",
@@ -232,7 +245,7 @@ async def get_track_list(job_id: str):
             conn.close()
 
 @router.get("/api/track/{job_id}/download/{track_type}")
-async def download_track(job_id: str, track_type: str):
+async def download_track(http: Request, job_id: str, track_type: str):
     """
     분리 트랙 다운로드 API
     - UC-13, FR-10
@@ -249,6 +262,15 @@ async def download_track(job_id: str, track_type: str):
 
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        # job_id 만으로 결과를 내주면 안 된다. 그 작업이 어느 방의 것인지
+        # 찾아서 그 방 사람인지 확인한다.
+        denied = room_auth.require(
+            cur, http, room_auth.room_of_job(cur, job_id)
+        )
+        if denied:
+            return denied
+
         cur.execute(
             "SELECT file_url FROM separated_track WHERE job_id = %s AND track_type = %s",
             (job_id, track_type)

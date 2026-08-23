@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import '../services/api_constants.dart';
+import '../services/api_service.dart';
 
 enum WsEventType {
   syncDraw,
@@ -61,9 +62,17 @@ class WebSocketService {
   void _doConnect() {
     if (_isDisposed) return;
     try {
+      // WebSocket 은 헤더를 붙일 수 없어서 열쇠를 쿼리로 보낸다.
+      //
+      // 이 연결로 필기가 실시간으로 흐르고 분리가 끝나면 파일 주소까지
+      // 실려 나간다. 다른 곳을 다 막아도 여기가 열려 있으면 소용없다.
+      final token = ApiService.roomToken;
       final uri = Uri.parse(
         '${ApiConstants.wsBaseUrl}/api/ws/room/$roomId',
-      ).replace(queryParameters: {'user_name': nickname});
+      ).replace(queryParameters: {
+        'user_name': nickname,
+        if (token != null) 'room_token': token,
+      });
       _channel = WebSocketChannel.connect(uri);
       _reconnectAttempts = 0;
       _channel!.stream.listen(

@@ -14,7 +14,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 class RecentRooms {
   const RecentRooms._();
 
-  static const _key = 'recent_rooms_v1';
+  /// v2 부터 참가 토큰을 함께 담는다.
+  ///
+  /// 키를 올려 v1 목록을 버린다. 토큰 없이 남아 있으면 눌러도 들어가지지
+  /// 않는 항목이 목록에 가득하게 된다. 방 코드를 다시 넣게 하는 편이 낫다.
+  static const _key = 'recent_rooms_v2';
 
   /// 목록에 남기는 최대 개수. 오래된 것부터 밀려난다.
   static const int maxCount = 12;
@@ -39,6 +43,7 @@ class RecentRooms {
     required String roomCode,
     required String roomName,
     required String nickname,
+    required String token,
   }) async {
     if (roomId.isEmpty || roomCode.isEmpty) return;
 
@@ -52,6 +57,7 @@ class RecentRooms {
         roomName: roomName,
         nickname: nickname,
         visitedAt: DateTime.now(),
+        token: token,
       ),
     );
 
@@ -80,6 +86,7 @@ class RecentRoom {
     required this.roomName,
     required this.nickname,
     required this.visitedAt,
+    required this.token,
   });
 
   final String roomId;
@@ -91,12 +98,16 @@ class RecentRoom {
 
   final DateTime visitedAt;
 
+  /// 이 방의 열쇠. 이것이 있어야 방 코드를 다시 넣지 않고 들어갈 수 있다.
+  final String token;
+
   Map<String, dynamic> toJson() => <String, dynamic>{
         'roomId': roomId,
         'roomCode': roomCode,
         'roomName': roomName,
         'nickname': nickname,
         'visitedAt': visitedAt.toIso8601String(),
+        'token': token,
       };
 
   static RecentRoom? tryParse(String line) {
@@ -109,6 +120,7 @@ class RecentRoom {
         nickname: json['nickname'] as String? ?? '',
         visitedAt: DateTime.tryParse(json['visitedAt'] as String? ?? '') ??
             DateTime.fromMillisecondsSinceEpoch(0),
+        token: json['token'] as String? ?? '',
       );
     } catch (_) {
       return null;

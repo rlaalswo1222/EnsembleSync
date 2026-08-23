@@ -1,5 +1,6 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 import psycopg2.extras
+import room_auth
 from database import get_db
 from config import REDIS_HOST, REDIS_PORT, signed_path
 import json
@@ -10,13 +11,22 @@ router = APIRouter()
 redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
 
 @router.get("/api/score/{room_id}/snapshot")
-async def get_score_snapshot(room_id: str):
+async def get_score_snapshot(http: Request, room_id: str):
     """
     악보 스냅샷 반환 API
     - 새 참여자가 방 입장 시 기존 필기 목록 전체를 반환
     - UC-04 기본흐름 3a: WebSocket 재연결 후 스냅샷 수신으로 복원
     """
+    conn = None
     try:
+        # 필기는 Redis 에 있지만 자격 확인은 DB 를 봐야 한다.
+        conn = get_db()
+        cur = conn.cursor()
+        denied = room_auth.require(cur, http, room_id)
+        cur.close()
+        if denied:
+            return denied
+
         key = f"snapshot:{room_id}"
         strokes = redis_client.lrange(key, 0, -1)
 
@@ -38,14 +48,22 @@ async def get_score_snapshot(room_id: str):
         }
     except Exception as e:
         return {"status": 500, "message": f"스냅샷 조회 중 오류가 발생했습니다: {str(e)}"}
+    finally:
+        if conn:
+            conn.close()
 
 
 @router.get("/api/score/{room_id}/latest")
-async def get_latest_score(room_id: str):
+async def get_latest_score(http: Request, room_id: str):
     conn = None
     try:
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        denied = room_auth.require(cur, http, room_id)
+        if denied:
+            return denied
+
         cur.execute(
             "SELECT file_url FROM score WHERE room_id = %s ORDER BY uploaded_at DESC LIMIT 1",
             (room_id,)

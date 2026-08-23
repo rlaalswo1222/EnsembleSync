@@ -4,6 +4,7 @@ import random
 import string
 import psycopg2.extras
 import ratelimit
+import room_auth
 from database import get_db
 
 router = APIRouter()
@@ -58,10 +59,20 @@ async def create_room(http: Request, request: RoomCreateRequest):
             "INSERT INTO room_participant (room_id, member_id, role) VALUES (%s, %s, 'leader')",
             (room_id, member_id)
         )
+        # role 은 넣기만 하고 읽는 곳이 없다. 방장 개념을 쓰지 않기로 했다 —
+        # 합주 연습에 위아래를 둘 이유가 없고, 로그인이 없어서 방을 만든
+        # 사람이 앱을 지우면 주인 없는 방이 된다.
+        token = room_auth.issue(cur, room_id, member_id)
 
         conn.commit()
         cur.close()
-        return {"status": 200, "room_code": room_code, "room_id": str(room_id), "message": "방이 성공적으로 생성되었습니다."}
+        return {
+            "status": 200,
+            "room_code": room_code,
+            "room_id": str(room_id),
+            "room_token": token,
+            "message": "방이 성공적으로 생성되었습니다.",
+        }
 
     except Exception as e:
         if conn:

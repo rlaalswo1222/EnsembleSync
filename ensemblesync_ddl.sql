@@ -53,6 +53,16 @@ CREATE TABLE room_participant (
     joined_at   TIMESTAMP   NOT NULL DEFAULT now(),
     role        VARCHAR(20) NOT NULL DEFAULT 'member'
                 CHECK (role IN ('leader', 'member')),
+    -- 이 참가자의 열쇠.
+    --
+    -- 방 코드는 한 번 쓰는 초대장이다. 화면 사진 한 장으로 새어 나가면
+    -- 회수할 방법이 없어서, 그것만으로 방 안의 음원과 분리 트랙에
+    -- 닿을 수 있게 두면 안 된다. 들어올 때 기기마다 따로 발급한다.
+    --
+    -- role 은 넣기만 하고 읽는 곳이 없다. 방장 개념을 쓰지 않는다 —
+    -- 합주 연습에 위아래를 둘 이유가 없고, 로그인이 없어서 방을 만든
+    -- 사람이 앱을 지우면 주인 없는 방이 된다.
+    token       TEXT        UNIQUE,
     UNIQUE (room_id, member_id)
 );
 

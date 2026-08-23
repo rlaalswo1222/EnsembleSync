@@ -3,7 +3,9 @@ import json
 import redis
 import redis.asyncio as aioredis
 import asyncio
+import room_auth
 from config import REDIS_HOST, REDIS_PORT
+from database import get_db
 
 router = APIRouter()
 
@@ -40,8 +42,46 @@ async def _redis_listener(room_id: str):
         _redis_tasks.pop(room_id, None)
 
 
+def _is_member(room_id: str, token: str | None) -> bool:
+    """이 방 사람인지 확인한다.
+
+    WebSocket 은 헤더를 붙일 수 없어서 토큰이 쿼리로 온다.
+
+    여기가 뚫려 있으면 다른 곳을 다 막아도 소용이 없다. 이 연결로 필기가
+    실시간으로 흐르고, 분리가 끝나면 파일 주소까지 실려 나간다.
+    """
+    if not room_auth.ENFORCE:
+        return True
+    conn = None
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        member = room_auth.member_of(cur, room_id, token)
+        cur.close()
+        return member is not None
+    except Exception:
+        # 확인할 수 없으면 막는다. 다른 곳(업로드 등)은 확인 수단이
+        # 고장 났을 때 통과시키지만, 여기는 방 안의 모든 것이 흐르는
+        # 통로라 반대로 잡는다.
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+
 @router.websocket("/api/ws/room/{room_id}")
-async def websocket_endpoint(websocket: WebSocket, room_id: str, user_name: str = "익명"):
+async def websocket_endpoint(
+    websocket: WebSocket,
+    room_id: str,
+    user_name: str = "익명",
+    room_token: str | None = None,
+):
+    if not _is_member(room_id, room_token):
+        # accept 하기 전에 닫는다. 받아들이고 나서 끊으면 앱은 연결이
+        # 됐다가 끊긴 것으로 보고 계속 다시 붙으려 한다.
+        await websocket.close(code=4401, reason="not a member")
+        return
+
     await websocket.accept()
 
     if room_id not in _rooms:
