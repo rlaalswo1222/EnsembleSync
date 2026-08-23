@@ -4,6 +4,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
+import migrate
 import signing
 import room_create
 import room_enter
@@ -76,6 +77,10 @@ async def serve_upload(file_path: str, request: Request):
         full,
         headers={"Cache-Control": f"private, max-age={signing.TTL_SECONDS}"},
     )
+
+# 스키마를 맞춘 뒤에 라우터를 붙인다. DDL 은 DB 를 처음 만들 때만 돌기
+# 때문에, 이미 돌고 있는 DB 에 컬럼을 더하려면 여기가 유일한 자리다.
+migrate.run()
 
 app.include_router(room_create.router)
 app.include_router(room_enter.router)
