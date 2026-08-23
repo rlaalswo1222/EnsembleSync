@@ -2,6 +2,7 @@ from fastapi import APIRouter, File, Request, UploadFile
 import psycopg2.extras
 import disk
 import ratelimit
+import room_auth
 from database import get_db
 from config import REDIS_HOST, REDIS_PORT, signed_path, touch_room
 import uuid
@@ -47,6 +48,10 @@ async def upload_score(
 
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        denied = room_auth.require(cur, http, room_id)
+        if denied:
+            return denied
         cur.execute("SELECT id, created_by FROM room WHERE id = %s", (room_id,))
         room = cur.fetchone()
         if not room:

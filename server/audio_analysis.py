@@ -2,6 +2,7 @@ from fastapi import APIRouter, Request
 import psycopg2.extras
 import disk
 import ratelimit
+import room_auth
 from database import get_db
 from celery_app import celery_app
 from config import REDIS_HOST, REDIS_PORT
@@ -49,6 +50,15 @@ async def start_analysis(
 
     conn = None
     try:
+        conn = get_db()
+        cur = conn.cursor()
+        denied = room_auth.require(cur, http, room_id)
+        cur.close()
+        conn.close()
+        conn = None
+        if denied:
+            return denied
+
         # 같은 방에서 이미 돌고 있으면 새로 걸지 않는다.
         #
         # 두 번 눌렀거나 앱이 재시도를 잘못 돌린 경우가 대부분이다. 그대로
@@ -156,11 +166,19 @@ async def start_analysis(
             conn.close()
 
 @router.post("/api/analysis/{job_id}/cancel")
-async def cancel_analysis(job_id: str):
+async def cancel_analysis(http: Request, job_id: str):
     conn = None
     try:
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        # job_id 만으로 결과를 내주면 안 된다. 그 작업이 어느 방의 것인지
+        # 찾아서 그 방 사람인지 확인한다.
+        denied = room_auth.require(
+            cur, http, room_auth.room_of_job(cur, job_id)
+        )
+        if denied:
+            return denied
 
         cur.execute(
             "SELECT celery_task_id, status FROM analysis_job WHERE id = %s",
@@ -369,7 +387,7 @@ def _queue_info(cur, job) -> dict:
 
 
 @router.get("/api/analysis/{job_id}/status")
-async def get_analysis_status(job_id: str):
+async def get_analysis_status(http: Request, job_id: str):
     """분석 작업 상태와 대기 순번.
 
     서버는 한 번에 한 곡만 돌린다. 그래서 몇 분이 걸릴지는 내 곡의 길이가
@@ -380,6 +398,15 @@ async def get_analysis_status(job_id: str):
     try:
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        # job_id 만으로 결과를 내주면 안 된다. 그 작업이 어느 방의 것인지
+        # 찾아서 그 방 사람인지 확인한다.
+        denied = room_auth.require(
+            cur, http, room_auth.room_of_job(cur, job_id)
+        )
+        if denied:
+            return denied
+
         cur.execute(
             "SELECT id, job_type, status, requested_at, completed_at, "
             "started_at FROM analysis_job WHERE id = %s",

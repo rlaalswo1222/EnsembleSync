@@ -7,7 +7,7 @@
 import os
 
 import psycopg2.extras
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
 from config import (
     ROOM_INACTIVE_DAYS,
@@ -16,6 +16,7 @@ from config import (
     local_upload_path,
     normalize_public_url,
 )
+import room_auth
 from database import get_db
 
 router = APIRouter()
@@ -33,12 +34,16 @@ def _dir_size(path: str) -> int:
 
 
 @router.get("/api/room/{room_id}/status")
-async def get_room_status(room_id: str):
+async def get_room_status(http: Request, room_id: str):
     """이 방이 언제 정리되는지, 지금 얼마나 쓰고 있는지."""
     conn = None
     try:
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        denied = room_auth.require(cur, http, room_id)
+        if denied:
+            return denied
         cur.execute(
             """
             SELECT name, room_code, created_at, last_active_at,
@@ -107,7 +112,7 @@ async def get_room_status(room_id: str):
 
 
 @router.post("/api/room/{room_id}/keep")
-async def keep_room(room_id: str):
+async def keep_room(http: Request, room_id: str):
     """정리 기한을 지금부터 다시 센다.
 
     별도의 '보관' 플래그를 두지 않고 활동 시각만 갱신한다. 상태가 하나면
@@ -117,6 +122,10 @@ async def keep_room(room_id: str):
     try:
         conn = get_db()
         cur = conn.cursor()
+
+        denied = room_auth.require(cur, http, room_id)
+        if denied:
+            return denied
         cur.execute(
             "UPDATE room SET last_active_at = now() WHERE id = %s", (room_id,)
         )
@@ -139,7 +148,7 @@ async def keep_room(room_id: str):
 
 
 @router.get("/api/room/{room_id}/latest")
-async def get_room_latest(room_id: str):
+async def get_room_latest(http: Request, room_id: str):
     """이 방에 이미 있는 음원과 분석 결과.
 
     악보와 필기는 방에 들어올 때 API 로 불러오는데, 음원과 분석 결과는
@@ -153,6 +162,10 @@ async def get_room_latest(room_id: str):
     try:
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        denied = room_auth.require(cur, http, room_id)
+        if denied:
+            return denied
 
         result = {"status": 200, "room_id": room_id}
 

@@ -1,11 +1,12 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 import psycopg2.extras
+import room_auth
 from database import get_db
 
 router = APIRouter()
 
 @router.get("/api/bpm/{job_id}/result")
-async def get_bpm_result(job_id: str):
+async def get_bpm_result(http: Request, job_id: str):
     """
     BPM 분석 결과 반환 API
     - UC-07, FR-04, FR-05
@@ -16,6 +17,14 @@ async def get_bpm_result(job_id: str):
     try:
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        # job_id 만으로 결과를 내주면 안 된다. 그 작업이 어느 방의 것인지
+        # 찾아서 그 방 사람인지 확인한다.
+        denied = room_auth.require(
+            cur, http, room_auth.room_of_job(cur, job_id)
+        )
+        if denied:
+            return denied
 
         # 1. analysis_job 존재 여부 및 상태 확인
         cur.execute(

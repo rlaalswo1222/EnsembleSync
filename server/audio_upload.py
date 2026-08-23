@@ -3,6 +3,7 @@ import psycopg2.extras
 import disk
 import audio_duration
 import ratelimit
+import room_auth
 from database import get_db
 from config import (
     MAX_AUDIO_MB,
@@ -74,6 +75,10 @@ async def upload_audio(
         # 3. room_id 존재 여부 검증
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        denied = room_auth.require(cur, http, room_id)
+        if denied:
+            return denied
         cur.execute("SELECT id FROM room WHERE id = %s", (room_id,))
         room = cur.fetchone()
         if not room:
