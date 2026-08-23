@@ -326,9 +326,14 @@ class _HomeScreenState extends State<HomeScreen>
                         vertical: verticalPadding,
                       ),
                       child: ConstrainedBox(
+                        // 남은 높이보다 여백이 더 클 수 있다. 그대로 빼면
+                        // 최소 높이가 음수가 되어 배치가 통째로 터진다.
+                        // 화면이 아주 낮을 때(키보드가 올라온 작은 기기)
+                        // 실제로 그런 일이 난다.
                         constraints: BoxConstraints(
-                          minHeight:
-                              constraints.maxHeight - (verticalPadding * 2),
+                          minHeight: (constraints.maxHeight -
+                                  verticalPadding * 2)
+                              .clamp(0.0, double.infinity),
                         ),
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
