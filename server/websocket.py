@@ -9,6 +9,16 @@ from database import get_db
 
 router = APIRouter()
 
+# 한 방이 들고 있을 수 있는 필기의 최대 개수.
+#
+# 지우개는 흰 획을 덧칠하는 방식이라 지울수록 오히려 늘어난다. 그리기
+# 100번에 지우기 100번이면 200개가 쌓인다. 상한이 없으면 오래 쓴 방일수록
+# 나중에 들어온 사람이 받는 스냅샷이 무거워진다.
+#
+# 2000 은 정상적인 사용에서 닿을 값이 아니다. 새는 것을 막는 마개일 뿐이다.
+MAX_STROKES = 2000
+
+
 # 방별 참여자 WebSocket { room_id: { user_name: WebSocket } }
 _rooms: dict = {}
 _redis_tasks: dict = {}  # room_id -> asyncio.Task (Redis pub/sub 리스너)
@@ -113,7 +123,12 @@ async def websocket_endpoint(
                 payload = msg.get("payload", {})
                 if _redis:
                     try:
-                        _redis.rpush(f"snapshot:{room_id}", json.dumps(payload))
+                        key = f"snapshot:{room_id}"
+                        pipe = _redis.pipeline()
+                        pipe.rpush(key, json.dumps(payload))
+                        # 넘치면 오래된 것부터 잘라낸다.
+                        pipe.ltrim(key, -MAX_STROKES, -1)
+                        pipe.execute()
                     except Exception:
                         pass
                 await _broadcast(room_id, {"type": "sync_draw", "payload": payload}, exclude=user_name)
@@ -121,13 +136,34 @@ async def websocket_endpoint(
             elif msg_type == "erase":
                 annotation_id = msg.get("annotation_id")
                 if annotation_id and _redis:
+                    # 목록을 새로 쌓아 통째로 바꿔 끼운다.
+                    #
+                    # 예전에는 원래 자리를 지우고 나서 살아남은 것을 하나씩
+                    # 다시 넣었다. 그 사이에 프로세스가 죽으면 그 방의 필기가
+                    # 통째로 사라진다. 되돌리기가 들어오면서 이 길이 자주
+                    # 쓰이게 됐으니 그대로 둘 수 없다.
+                    #
+                    # 임시 열쇠에 다 쌓은 뒤 RENAME 으로 한 번에 갈아 끼우면
+                    # 중간 상태가 없다.
+                    key = f"snapshot:{room_id}"
+                    tmp = f"{key}:rebuild"
                     try:
-                        raw_list = _redis.lrange(f"snapshot:{room_id}", 0, -1)
-                        _redis.delete(f"snapshot:{room_id}")
-                        for raw in raw_list:
-                            item = json.loads(raw)
-                            if item.get("annotation_id") != annotation_id:
-                                _redis.rpush(f"snapshot:{room_id}", raw)
+                        kept = [
+                            raw
+                            for raw in _redis.lrange(key, 0, -1)
+                            if json.loads(raw).get("annotation_id")
+                            != annotation_id
+                        ]
+                        pipe = _redis.pipeline()
+                        pipe.delete(tmp)
+                        if kept:
+                            pipe.rpush(tmp, *kept)
+                            pipe.rename(tmp, key)
+                        else:
+                            # 남는 것이 없으면 빈 목록을 만들 수 없다.
+                            # Redis 는 빈 리스트를 키로 두지 않는다.
+                            pipe.delete(key)
+                        pipe.execute()
                     except Exception:
                         pass
                 await _broadcast(room_id, {"type": "erase", "annotation_id": annotation_id}, exclude=user_name)
