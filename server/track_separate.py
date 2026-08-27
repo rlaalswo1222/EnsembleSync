@@ -88,6 +88,9 @@ def _fail_orphaned_jobs(**_):
     워커를 여러 대로 늘리면 이 가정이 깨진다. 그때는 워커 이름을 함께
     기록해서 자기 것만 털어야 한다.
     """
+    for problem in worker_io.check_config():
+        print(f"[worker] 설정 문제: {problem}")
+
     try:
         conn = get_db()
         cur = conn.cursor()
