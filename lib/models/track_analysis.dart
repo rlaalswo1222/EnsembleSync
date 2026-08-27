@@ -154,6 +154,22 @@ class KeyEstimate {
     return pitchNames[((base + semitones) % 12 + 12) % 12];
   }
 
+  /// 화면에 크게 띄우는 표기. 단조면 m 을 붙인다.
+  ///
+  /// 그냥 'B' 라고 쓰면 B장조로 읽힌다. B단조와 B장조는 다른 조인데
+  /// 같은 글자가 되어버린다. 연주자에게는 그 차이가 전부다.
+  ///
+  /// 확신이 없을 때는 붙이지 않는다. 나란한조는 구성음이 같아 기계가
+  /// 자주 헷갈리는데, 그때 'Bm' 이라고 못박으면 틀린 확신을 주게 된다.
+  /// 그런 경우에는 아래 줄에 두 후보를 함께 띄운다.
+  String? short({int semitones = 0}) {
+    if (!isValid) return null;
+    final String root =
+        semitones == 0 ? tonic! : transposed(semitones)!;
+    if (isAmbiguous || mode != 'minor') return root;
+    return '${root}m';
+  }
+
   /// 나란한조. B단조와 D장조처럼 구성음이 같아 기계 판정이 흔들리는 짝이다.
   /// 신뢰도가 낮을 때 후보를 하나 더 보여주기 위한 것.
   String? get relativeLabel {

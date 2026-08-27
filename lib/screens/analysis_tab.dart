@@ -65,6 +65,25 @@ class _AnalysisTabState extends State<AnalysisTab> {
   String? _trackJobId;
   Timer? _bpmTimeoutTimer;
 
+  /// BPM 작업 번호. 알림을 놓쳤을 때 직접 물어보려면 이게 있어야 한다.
+  ///
+  /// 예전에는 시작만 시키고 번호를 버렸다. 그래서 WebSocket 알림 하나에만
+  /// 기대게 됐고, 그 알림을 놓치면 60초 뒤에 실패로 단정했다. 서버에서는
+  /// 멀쩡히 끝난 작업인데도 그랬다.
+  String? _bpmJobId;
+
+  Timer? _bpmPollTimer;
+
+  /// 분석을 시작한 시각과, 화면을 1초마다 다시 그리는 타이머.
+  ///
+  /// 진행 표시가 WebSocket 알림에만 기대고 있었다. 알림이 끊기면 폴링이
+  /// 뒤에서 멀쩡히 일하는 동안에도 화면은 첫 줄에 멈춰 있었다. 실제로
+  /// 96초가 걸린 작업 내내 '분석 요청을 보내는 중' 이 떠 있었다.
+  ///
+  /// 경과 시간은 무엇이 끊기든 늘 정직하게 움직인다.
+  DateTime? _startedAt;
+  Timer? _tickTimer;
+
   /// 서버가 보내오는 단계 메시지. 분리는 몇 분씩 걸리는데 "분리 중" 한 줄만
   /// 떠 있으면 멈춘 건지 도는 건지 알 수 없다. 지나온 단계를 쌓아 보여준다.
   final List<String> _log = [];
@@ -103,6 +122,8 @@ class _AnalysisTabState extends State<AnalysisTab> {
   @override
   void dispose() {
     _bpmTimeoutTimer?.cancel();
+    _bpmPollTimer?.cancel();
+    _tickTimer?.cancel();
     _pollTimer?.cancel();
     super.dispose();
   }
@@ -255,22 +276,8 @@ class _AnalysisTabState extends State<AnalysisTab> {
           }
         });
       } else if (event.type == WsEventType.bpmAnalyzed) {
-        if (mounted) {
-          setState(() {
-            _log.add('BPM 분석 완료');
-            _lastStage = 'bpm_done';
-          });
-        }
-        _bpmTimeoutTimer?.cancel();
-        _bpmTimeoutTimer = null;
-        final jobId = event.data['job_id'] as String?;
-        if (jobId != null) widget.onBpmJobId?.call(jobId);
-        if (mounted) {
-          setState(() {
-            _state = AnalysisState.done;
-            _phase = _Phase.none;
-          });
-        }
+        final jobId = event.data['job_id'] as String? ?? _bpmJobId;
+        if (jobId != null) _finishBpm(jobId);
       } else if (event.type == WsEventType.trackSeparated) {
         final payload = _payloadFor(event);
         if (!_belongsToCurrentRoom(payload)) return;
@@ -414,13 +421,24 @@ class _AnalysisTabState extends State<AnalysisTab> {
       if (audioFileId == null) {
         throw Exception('업로드된 음원 파일이 없습니다.');
       }
-      await ApiService().startBpmAnalysis(
+      final started = await ApiService().startBpmAnalysis(
         roomId: widget.roomId,
         audioFileId: audioFileId,
       );
+      _bpmJobId = started['job_id'] as String?;
+
+      // 알림을 기다리는 동안 직접도 물어본다. 알림은 지나가면 끝이지만
+      // 물어보는 것은 몇 번이든 다시 할 수 있다.
+      _bpmPollTimer?.cancel();
+      _bpmPollTimer = Timer.periodic(
+        const Duration(seconds: 5),
+        (_) => _pollBpm(),
+      );
+
       _bpmTimeoutTimer?.cancel();
-      _bpmTimeoutTimer = Timer(const Duration(seconds: 60), () {
+      _bpmTimeoutTimer = Timer(const Duration(seconds: 120), () {
         if (mounted && _phase == _Phase.bpm) {
+          _bpmPollTimer?.cancel();
           setState(() {
             _state = AnalysisState.done;
             _phase = _Phase.none;
@@ -440,6 +458,40 @@ class _AnalysisTabState extends State<AnalysisTab> {
     }
   }
 
+  /// BPM 이 끝났는지 직접 물어본다.
+  ///
+  /// 알림을 못 받아도 이쪽이 잡아낸다. 서버에서는 끝났는데 앱만 실패로
+  /// 알고 있는 일이 실제로 있었다.
+  Future<void> _pollBpm() async {
+    final jobId = _bpmJobId;
+    if (jobId == null || !mounted || _phase != _Phase.bpm) return;
+    try {
+      await ApiService().getBpmResult(jobId);
+      if (!mounted || _phase != _Phase.bpm) return;
+      _finishBpm(jobId, viaPolling: true);
+    } catch (_) {
+      // 아직 안 끝났거나 잠깐 못 닿은 것이다. 다음 차례에 다시 묻는다.
+    }
+  }
+
+  /// BPM 이 끝났을 때 하는 일. 알림으로 알았든 물어봐서 알았든 같다.
+  void _finishBpm(String jobId, {bool viaPolling = false}) {
+    _bpmTimeoutTimer?.cancel();
+    _bpmTimeoutTimer = null;
+    _bpmPollTimer?.cancel();
+    _bpmPollTimer = null;
+    _tickTimer?.cancel();
+    _tickTimer = null;
+    widget.onBpmJobId?.call(jobId);
+    if (!mounted) return;
+    setState(() {
+      _log.add(viaPolling ? 'BPM 분석 완료 (직접 확인함)' : 'BPM 분석 완료');
+      _lastStage = 'bpm_done';
+      _state = AnalysisState.done;
+      _phase = _Phase.none;
+    });
+  }
+
   /// 분리를 띄운다. 완료되면 WS 수신부에서 BPM 을 이어 돌린다.
   Future<void> _startAnalysis() async {
     setState(() {
@@ -452,6 +504,13 @@ class _AnalysisTabState extends State<AnalysisTab> {
       _queuePosition = null;
       _etaSeconds = null;
       _log.add('분석 요청을 보내는 중');
+      _startedAt = DateTime.now();
+    });
+    _tickTimer?.cancel();
+    _tickTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted && _state == AnalysisState.loading) {
+        setState(() {});
+      }
     });
     try {
       final audioFileId = await _ensureAudioUploaded('separation');
@@ -512,6 +571,10 @@ class _AnalysisTabState extends State<AnalysisTab> {
   void _cancelAnalysis() {
     _bpmTimeoutTimer?.cancel();
     _bpmTimeoutTimer = null;
+    _bpmPollTimer?.cancel();
+    _bpmPollTimer = null;
+    _tickTimer?.cancel();
+    _tickTimer = null;
     _stopPolling();
     final jobId = _trackJobId;
     setState(() {
@@ -866,9 +929,32 @@ class _AnalysisTabState extends State<AnalysisTab> {
           style: const TextStyle(fontSize: 12, color: AppColors.inkSecondary),
         ),
         _buildQueueLine(),
+        _buildElapsedLine(),
         const SizedBox(height: AppSpace.lg),
         _buildLog(),
       ],
+    );
+  }
+
+  /// 시작한 지 얼마나 됐는지.
+  ///
+  /// 다른 표시는 전부 서버가 보내주는 것에 기대지만 이것만은 아니다.
+  /// 알림이 끊겨도, 서버가 잠깐 대답을 안 해도 계속 움직인다. 화면이
+  /// 살아 있다는 것을 보여주는 것이 이 줄의 일이다.
+  Widget _buildElapsedLine() {
+    final start = _startedAt;
+    if (start == null) return const SizedBox.shrink();
+    final int sec = DateTime.now().difference(start).inSeconds;
+    if (sec < 3) return const SizedBox.shrink();
+    final String text = sec < 60
+        ? '$sec초 경과'
+        : '${sec ~/ 60}분 ${(sec % 60).toString().padLeft(2, '0')}초 경과';
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Text(
+        text,
+        style: const TextStyle(fontSize: 12, color: AppColors.inkTertiary),
+      ),
     );
   }
 
