@@ -177,6 +177,77 @@ def _chord_templates() -> tuple:
     return np.array(templates), labels
 
 
+# 새 코드가 이만큼 오래 이겨야 갈아탄다. (초)
+#
+# 바꾸는 값을 숫자 하나로 못 박지 않는다. 크로마 점수의 1등·2등 차이는
+# 곡마다 다르다. 깨끗한 녹음은 차이가 크고, 드럼이 새어든 분리 트랙은
+# 작다. 같은 값을 쓰면 어떤 곡은 잔떨림이 남고 어떤 곡은 코드가 뭉개진다.
+#
+# 그래서 곡마다 실제로 관측한 차이에 맞춰 정한다. 이 상수는 "얼마나 오래
+# 버텨야 인정하나" 라는 음악적인 뜻만 가진다.
+#
+# 값은 실측으로 골랐다. 정답을 아는 소리를 만들어 코드 길이를 4박·2박·1박
+# 으로 바꿔가며 쟀다(server/tools/chord_eval.py).
+#
+#            최빈값(예전)   0.5초   0.8초   1.5초   3.5초
+#   4박 코드     93.3%      96.2%   98.2%   98.2%   98.2%
+#   2박 코드     90.8%      94.1%   97.4%   97.5%   90.0%
+#   1박 코드     67.2%      73.1%   73.6%   68.9%   50.9%
+#
+# 느린 진행은 0.8 이후로 평지지만 빠른 진행은 거기서 정점을 찍고 내려온다.
+# 더 올려서 얻을 것이 없고, 코드가 자주 바뀌는 곡을 뭉갤 위험만 커진다.
+COMMIT_SECONDS = 0.8
+
+
+def _change_penalty(scores: np.ndarray, frames_per_second: float) -> float:
+    """이 곡에서 코드를 바꾸는 데 치를 값을 정한다.
+
+    1등과 2등의 점수 차를 프레임마다 재서 중앙값을 쓴다. 그것이 "한 프레임
+    동안 벌 수 있는 이득" 이므로, 여기에 버텨야 할 프레임 수를 곱하면
+    "그만큼 오래 이겨야 갈아탄다" 가 된다.
+    """
+    if scores.shape[1] == 0:
+        return 0.0
+    top2 = np.partition(scores, -2, axis=0)[-2:]
+    margin = float(np.median(top2[1] - top2[0]))
+    if not np.isfinite(margin) or margin <= 0:
+        margin = 0.01
+    return margin * COMMIT_SECONDS * frames_per_second
+
+
+def _viterbi(scores: np.ndarray, penalty: float) -> np.ndarray:
+    """프레임별 점수에서 가장 그럴듯한 코드 경로를 고른다.
+
+    바꾸는 값이 어느 코드로 가든 같으므로, 매 프레임 "지금 상태를 유지" 와
+    "가장 좋았던 상태에서 갈아타기" 둘만 견주면 된다. 24x24 를 다 볼 필요가
+    없어서 프레임 수에 비례하는 시간만 든다.
+    """
+    n_states, n_frames = scores.shape
+    if n_frames == 0:
+        return np.zeros(0, dtype=np.int32)
+
+    dp = np.empty((n_states, n_frames))
+    back = np.empty((n_states, n_frames), dtype=np.int32)
+    states = np.arange(n_states)
+
+    dp[:, 0] = scores[:, 0]
+    back[:, 0] = states
+
+    for t in range(1, n_frames):
+        prev = dp[:, t - 1]
+        best_prev = int(prev.argmax())
+        switch = prev[best_prev] - penalty
+        take_switch = switch > prev
+        dp[:, t] = np.where(take_switch, switch, prev) + scores[:, t]
+        back[:, t] = np.where(take_switch, best_prev, states)
+
+    path = np.empty(n_frames, dtype=np.int32)
+    path[-1] = int(dp[:, -1].argmax())
+    for t in range(n_frames - 1, 0, -1):
+        path[t - 1] = back[path[t], t]
+    return path
+
+
 def detect_chords(
     chroma: np.ndarray, sr: int, hop_length: int, key: dict = None
 ) -> list:
@@ -193,16 +264,17 @@ def detect_chords(
     if key:
         # 조성 가중치는 프레임마다 같은 값을 더하는 것이라 접전만 뒤집는다.
         scores += _diatonic_bonus(key)[:, np.newaxis]
-    best = scores.argmax(axis=0)
-
-    # 프레임 단위 판정은 심하게 튄다. 약 1초 창의 최빈값으로 눌러준다.
-    window = max(1, int(round(sr / hop_length)))
-    smoothed = np.empty_like(best)
-    for i in range(len(best)):
-        lo = max(0, i - window // 2)
-        hi = min(len(best), i + window // 2 + 1)
-        counts = np.bincount(best[lo:hi], minlength=len(labels))
-        smoothed[i] = counts.argmax()
+    # 프레임 단위 판정은 심하게 튄다. 눌러주는 방식이 중요하다.
+    #
+    # 예전에는 1초 창의 최빈값을 썼다. 한복판은 잘 맞았지만 코드가 바뀌는
+    # 자리에서 창이 두 코드를 함께 물고 있어 경계가 최대 0.5초까지 밀렸다.
+    # 실측으로 한복판 오류는 0%, 경계 언저리 오류는 23% 였다 — 틀리는
+    # 것이 전부 경계였다는 뜻이다.
+    #
+    # 그래서 최빈값 대신 경로를 고른다. 코드를 바꿀 때마다 값을 치르게
+    # 하면, 잠깐 흔들리는 것은 무시하고 진짜로 바뀐 자리에서는 즉시 바꾼다.
+    # 경계가 뭉개지지 않으면서 한복판도 안정된다.
+    smoothed = _viterbi(scores, _change_penalty(scores, sr / hop_length))
 
     times = librosa.frames_to_time(
         np.arange(len(smoothed) + 1), sr=sr, hop_length=hop_length

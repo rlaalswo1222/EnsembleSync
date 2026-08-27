@@ -1,0 +1,22 @@
+# 줄바꿈은 저장소 안에서 LF 로 통일한다.
+#
+# Windows 에서 작업하면 git 이 체크아웃할 때 CRLF 로 바꾸고, 커밋할 때마다
+# "LF will be replaced by CRLF" 경고를 파일 수만큼 쏟아낸다. 실제로 바뀌는
+# 것도 없는데 매번 화면을 채운다.
+#
+# 서버 쪽은 더 중요하다. 셸 스크립트와 Dockerfile 이 CRLF 로 서버에 올라가면
+# "\r: command not found" 로 터진다.
+* text=auto eol=lf
+
+# 이진 파일은 손대지 않는다.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.pdf binary
+*.mp3 binary
+*.wav binary
+*.ttf binary
+*.otf binary
+*.jar binary
+*.keystore binary

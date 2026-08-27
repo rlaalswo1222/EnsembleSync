@@ -21,6 +21,9 @@ dependencies:
   path_provider: ^2.1.0
   flutter_soloud: ^4.1.7
   shared_preferences: ^2.5.5
+  # 도구 아이콘(형광펜·지우개)을 SVG 로 그린다. 피그마에서 만든 원본을
+  # 그대로 쓰므로 크기가 달라져도 선명하고, 색은 코드에서 정한다.
+  flutter_svg: ^2.0.10
 
 dev_dependencies:
   flutter_test:
@@ -29,3 +32,9 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
+  assets:
+    # 로고는 앱 아이콘에서 글리프만 뽑아낸 것이다. 다시 그린 것이 아니라
+    # 원본 픽셀의 혼합 비율을 역산해 만든 마스크라 모양이 완전히 같다.
+    # 흰색으로 저장해 두었으므로 코드에서 어떤 색으로든 물들일 수 있다.
+    - assets/icons/

@@ -1,0 +1,11 @@
+<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+  <!-- 형광펜. 가늘고 긴 몸통에 깎인 촉, 아래에 굵게 칠한 자국.
+       기존 펜(Icons.edit_rounded)과 같은 45° 방향·채워진 형태로 맞췄다. -->
+  <g fill="currentColor">
+    <g transform="rotate(-45 12 11)">
+      <rect x="8.5" y="7.8" width="11.5" height="6.4" rx="2"/>
+      <path d="M11 7.8 4.2 9.9v2.2l6.8 2.1z"/>
+    </g>
+    <rect x="2.6" y="18.9" width="18.8" height="3.2" rx="1.6"/>
+  </g>
+</svg>

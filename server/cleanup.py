@@ -203,6 +203,35 @@ def _remove_upload(file_url: str) -> int:
         return 0
 
 
+def _orphan_members(cur) -> int:
+    """아무 데서도 가리키지 않는 member 행을 지운다.
+
+    방에 들어올 때마다 member 를 새로 만들던 시절이 있었다. 같은 사람이
+    다섯 번 들어가면 다섯 명이 됐다. 실제로 방 53개에 멤버 329명이 쌓여
+    있었다.
+
+    지금은 저장해둔 참가 토큰으로 들어가므로 더 쌓이지 않지만, 옛 행은
+    그대로 남는다. 방이 지워질 때 room_participant 는 CASCADE 로 함께
+    지워지는데 member 는 아무도 지우지 않아서 영원히 남는다.
+
+    네 곳에서 참조한다. 하나라도 걸리면 남긴다.
+    """
+    cur.execute(
+        """
+        DELETE FROM member m
+        WHERE NOT EXISTS (
+                SELECT 1 FROM room_participant p WHERE p.member_id = m.id)
+          AND NOT EXISTS (
+                SELECT 1 FROM room r WHERE r.created_by = m.id)
+          AND NOT EXISTS (
+                SELECT 1 FROM score s WHERE s.uploaded_by = m.id)
+          AND NOT EXISTS (
+                SELECT 1 FROM audio_file a WHERE a.uploaded_by = m.id)
+        """
+    )
+    return cur.rowcount or 0
+
+
 def _orphan_uploads(cur) -> tuple:
     """음원·악보 폴더에서 DB 가 모르는 파일을 지운다. (개수, 바이트)
 
@@ -321,6 +350,7 @@ def cleanup_separated(retention_days: int = None, dry_run: bool = False):
         dead_rooms, room_freed = (0, 0) if dry_run else _delete_inactive_rooms(cur)
         # 방 삭제 뒤에 돈다. 그래야 방이 남긴 것까지 같은 회차에 걷힌다.
         orphan_files, orphan_freed = (0, 0) if dry_run else _orphan_uploads(cur)
+        orphan_members = 0 if dry_run else _orphan_members(cur)
 
         freed = 0
         for job_id in expired + orphans:
@@ -354,6 +384,7 @@ def cleanup_separated(retention_days: int = None, dry_run: bool = False):
             "empty_rooms_deleted": empty_rooms,
             "inactive_rooms_deleted": dead_rooms,
             "orphan_files_deleted": orphan_files,
+            "orphan_members_deleted": orphan_members,
             "freed_mb": round(
                 (freed + room_freed + orphan_freed) / 1024 / 1024, 1
             ),

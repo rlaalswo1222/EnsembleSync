@@ -340,9 +340,6 @@ class _ScoreCanvasState extends State<ScoreCanvas> {
                         painter: _DrawingPainter(
                           strokes: widget.strokes,
                           currentStroke: widget.currentStroke,
-                          // 확대해도 펜은 굵어지지 않아야 자연스럽다. 종이를
-                          // 가까이 들여다본다고 선이 굵어지지는 않는다.
-                          scale: _scale,
                         ),
                       ),
                     ),
@@ -447,17 +444,9 @@ class _DrawingPainter extends CustomPainter {
   final List<Stroke> strokes;
   final Stroke? currentStroke;
 
-  /// 지금 몇 배로 보고 있는가.
-  ///
-  /// 선 굵기를 이 값으로 나눠 그린다. 확대는 종이를 가까이 들여다보는 것에
-  /// 가까운데, 그때 선까지 굵어지면 확대한 보람이 없다. 음표 사이에 그은
-  /// 가는 선이 확대할수록 뭉개진다.
-  final double scale;
-
   const _DrawingPainter({
     required this.strokes,
     required this.currentStroke,
-    required this.scale,
   });
 
   @override
@@ -475,7 +464,17 @@ class _DrawingPainter extends CustomPainter {
   void _drawStroke(Canvas canvas, Size size, Stroke stroke) {
     if (stroke.points.isEmpty) return;
 
-    final width = stroke.width / scale;
+    // 굵기를 배율로 나누지 않는다.
+    //
+    // 한때 나눠 그렸다. 확대해도 선이 굵어지지 않는 편이 자연스럽다고
+    // 여겼는데 지우개가 망가졌다. 지우개는 펜 위를 넉넉히 덮어 지운
+    // 것인데, 둘 다 페이지 좌표에서 함께 가늘어지면 그 여유도 같이 준다.
+    // 지우개가 펜에서 조금 벗어나 지나간 자리는 확대하는 순간 다시
+    // 드러났다.
+    //
+    // 필기는 종이 위에 있는 것이다. 종이를 확대하면 잉크도 함께 커지는
+    // 것이 맞다. 그래야 지운 자리가 배율과 상관없이 지워진 채로 남는다.
+    final width = stroke.width;
     final paint = Paint()
       ..color = stroke.isEraser
           ? Colors.white

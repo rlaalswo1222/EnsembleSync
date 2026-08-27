@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter/services.dart';
 import 'package:image_cropper/image_cropper.dart';
 import 'package:image_picker/image_picker.dart';
@@ -1296,7 +1297,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   /// 화면을 가로지르는 단추는 오히려 누르기 나쁘다.
   Widget _readable(Widget child) => Center(
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 560),
+          constraints: const BoxConstraints(maxWidth: 640),
           child: child,
         ),
       );
@@ -1345,12 +1346,14 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         ),
         _ToolButton(
           icon: Icons.highlight_rounded,
+          asset: 'assets/icons/highlighter.svg',
           selected: _tool == DrawTool.highlighter,
           hasOptions: true,
           onTap: () => _onToolTap(DrawTool.highlighter),
         ),
         _ToolButton(
           icon: Icons.auto_fix_normal_rounded,
+          asset: 'assets/icons/eraser.svg',
           selected: _tool == DrawTool.eraser,
           hasOptions: true,
           onTap: () => _onToolTap(DrawTool.eraser),
@@ -1536,7 +1539,15 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 }
 
 class _ToolButton extends StatelessWidget {
+  /// 머티리얼 아이콘. [asset] 을 주면 그쪽이 쓰인다.
   final IconData icon;
+
+  /// 직접 그린 아이콘의 경로.
+  ///
+  /// 형광펜과 지우개는 머티리얼에 알맞은 그림이 없다. 지금까지 쓰던
+  /// highlight_rounded 는 전구고 auto_fix_normal_rounded 는 요술봉이라,
+  /// 무슨 도구인지 그림만 봐서는 알 수 없었다.
+  final String? asset;
   final bool selected;
   final VoidCallback onTap;
 
@@ -1550,6 +1561,7 @@ class _ToolButton extends StatelessWidget {
     required this.icon,
     required this.selected,
     required this.onTap,
+    this.asset,
     this.hasOptions = false,
     this.enabled = true,
   });
@@ -1577,7 +1589,15 @@ class _ToolButton extends StatelessWidget {
         child: Stack(
           alignment: Alignment.center,
           children: <Widget>[
-            Icon(icon, size: 18, color: tint),
+            if (asset != null)
+              SvgPicture.asset(
+                asset!,
+                width: 18,
+                height: 18,
+                colorFilter: ColorFilter.mode(tint, BlendMode.srcIn),
+              )
+            else
+              Icon(icon, size: 18, color: tint),
             // 고른 도구의 오른쪽 아래에 작은 표시를 둔다. 다시 누르면
             // 굵기를 정할 수 있다는 것을 알 방법이 달리 없다.
             if (selected && hasOptions)

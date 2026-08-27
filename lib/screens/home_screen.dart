@@ -1,9 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../services/api_service.dart';
 import '../services/recent_rooms.dart';
 import 'join_room_screen.dart';
 import 'main_screen.dart';
 import '../theme/tokens.dart';
+
+/// 약관 문서가 놓인 곳. 웹 앱과 함께 배포된다.
+const String _legalBase = String.fromEnvironment(
+  'LEGAL_BASE_URL',
+  defaultValue: 'https://bandly-4e2f0.web.app',
+);
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -117,6 +124,44 @@ class _HomeScreenState extends State<HomeScreen>
         builder: (_) =>
             JoinRoomScreen(nickname: _nicknameController.text.trim()),
       ),
+    );
+  }
+
+  /// 이용약관과 개인정보처리방침으로 가는 길.
+  ///
+  /// 앱 안에 문서를 넣지 않고 웹 주소로 연다. 스토어에 올리려면 어차피
+  /// 누구나 볼 수 있는 주소가 있어야 하고, 문구를 고칠 때마다 앱을 새로
+  /// 배포하는 것도 말이 안 된다.
+  Widget _buildLegalLinks() {
+    Widget link(String label, String path) {
+      return GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => launchUrl(
+          Uri.parse('$_legalBase/$path'),
+          mode: LaunchMode.externalApplication,
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          child: Text(
+            label,
+            style: const TextStyle(
+              fontSize: 12,
+              color: AppColors.inkTertiary,
+              decoration: TextDecoration.underline,
+              decorationColor: AppColors.separator,
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: <Widget>[
+        link('이용약관', 'terms.html'),
+        const Text('·', style: TextStyle(color: AppColors.separator)),
+        link('개인정보처리방침', 'privacy.html'),
+      ],
     );
   }
 
@@ -310,8 +355,12 @@ class _HomeScreenState extends State<HomeScreen>
         child: SafeArea(
           child: Center(
             child: ConstrainedBox(
+              // 폰은 화면을 다 쓰고, 그보다 넓은 화면에서는 가운데에
+              // 모은다. 400 은 데스크톱 창을 기준으로 잡은 값이라 태블릿
+              // 에서는 지나치게 좁았다. 세로로 긴 카드가 화면 한가운데
+              // 실처럼 서 있었다.
               constraints: BoxConstraints(
-                maxWidth: isMobile ? double.infinity : 400,
+                maxWidth: isMobile ? double.infinity : 480,
               ),
               child: ColoredBox(
                 color: Colors.white,
@@ -339,13 +388,28 @@ class _HomeScreenState extends State<HomeScreen>
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             // ── 로고 ──────────────────────────────────────
-                            const Row(
+                            Row(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                Icon(Icons.music_note_rounded,
-                                    color: _primary, size: 36),
-                                SizedBox(width: 8),
-                                Text(
+                                // 앱 아이콘에서 글리프만 뽑아낸 그림이다.
+                                // 비슷하게 다시 그린 것이 아니라 원본의
+                                // 픽셀 비율을 역산해 만든 것이라 설치
+                                // 아이콘과 모양이 완전히 같다.
+                                //
+                                // 흰색으로 저장해 두고 여기서 물들인다.
+                                //
+                                // 강조색은 이 앱에서 아껴 쓰는 색이라
+                                // 어디에 두느냐가 곧 무엇이 중심인지를
+                                // 말한다. 첫 화면에서 가장 먼저 봐야 할
+                                // 것은 이 앱이 무엇인가이므로 로고에 준다.
+                                Image.asset(
+                                  'assets/icons/bandly_mark.png',
+                                  height: 48,
+                                  color: AppColors.accent,
+                                  filterQuality: FilterQuality.medium,
+                                ),
+                                const SizedBox(width: 10),
+                                const Text(
                                   'Bandly',
                                   style: TextStyle(
                                     fontSize: 28,
@@ -542,6 +606,7 @@ class _HomeScreenState extends State<HomeScreen>
                             ),
                             _buildRecentRooms(),
                             const SizedBox(height: 24),
+                            _buildLegalLinks(),
                           ],
                         ),
                       ),
