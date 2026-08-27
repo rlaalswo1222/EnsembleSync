@@ -198,3 +198,39 @@ def cleanup(output_dir: str) -> None:
 
     if output_dir and os.path.isdir(output_dir):
         shutil.rmtree(output_dir, ignore_errors=True)
+
+
+def check_config() -> list:
+    """설정이 어긋난 곳을 찾아 목록으로 돌려준다.
+
+    멀리 있는 일꾼은 설정을 손으로 맞춘다. 하나를 빠뜨려도 워커는 멀쩡히
+    뜨고 작업도 받는다. 다만 결과가 조용히 못 쓰게 된다.
+
+    실제로 두 개를 빠뜨렸다. PUBLIC_BASE_URL 이 없어 완료 알림에 실린
+    주소가 localhost:8000 이 됐고, FILE_SIGNING_SECRET 이 없어 데스크탑이
+    자기 열쇠를 새로 만들었다. 서버가 그 서명을 인정하지 않으므로 주소를
+    고쳐도 403 이 났을 것이다.
+
+    분리는 성공하고 앱에서만 깨지기 때문에 알아채기까지 오래 걸린다.
+    뜰 때 한 번 확인해서 크게 남긴다.
+    """
+    if not REMOTE:
+        return []
+
+    problems = []
+    base = os.getenv("PUBLIC_BASE_URL", "")
+    if not base or "localhost" in base or "127.0.0.1" in base:
+        problems.append(
+            "PUBLIC_BASE_URL 이 비었거나 localhost 다. 완료 알림에 실리는 "
+            "주소가 앱에서 닿지 않는 곳을 가리키게 된다."
+        )
+    if not os.getenv("FILE_SIGNING_SECRET", "").strip():
+        problems.append(
+            "FILE_SIGNING_SECRET 이 없다. 이 기계가 자기 열쇠를 새로 만들어 "
+            "서명하므로 서버가 그 주소를 거절한다."
+        )
+    if not SERVER:
+        problems.append("WORKER_SERVER_URL 이 없다. 원본을 받을 곳을 모른다.")
+    if not SECRET:
+        problems.append("WORKER_SECRET 이 없다. 결과를 올릴 수 없다.")
+    return problems

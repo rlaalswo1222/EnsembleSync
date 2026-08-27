@@ -408,8 +408,9 @@ class _MixerWorkspaceState extends State<MixerWorkspace> {
 
     final String display;
     if (key != null && key.isValid) {
-      display =
-          shift == 0 ? key.tonic! : '${key.tonic!} → ${key.transposed(shift)}';
+      display = shift == 0
+          ? key.short()!
+          : '${key.short()} → ${key.short(semitones: shift)}';
     } else {
       display = shift == 0 ? '—' : (shift > 0 ? '+$shift' : '$shift');
     }
