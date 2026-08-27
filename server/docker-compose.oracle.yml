@@ -34,6 +34,9 @@ x-backend-env: &backend-env
   # 쓴다(api 와 워커가 그 폴더를 함께 쓰므로 같은 값을 보게 된다). 서버를
   # 여러 대로 늘리거나 열쇠를 갈아야 할 때만 여기서 지정한다.
   FILE_SIGNING_SECRET: ${FILE_SIGNING_SECRET:-}
+  # 서버 밖에 있는 일꾼이 결과를 되돌려 보낼 때 쓰는 열쇠.
+  # 비어 있으면 그 창구가 닫힌다 — 원격 일꾼을 안 쓰는 동안에는 그게 맞다.
+  WORKER_SECRET: ${WORKER_SECRET:-}
 
 x-logging: &logging
   # 도커 로그가 무한정 쌓여 디스크를 잠식하는 것을 막는다
@@ -49,6 +52,9 @@ services:
       POSTGRES_DB: ${DB_NAME}
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
+    # Redis 와 같은 이유로 127.0.0.1 에만 연다.
+    ports:
+      - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       # 최초 기동 시에만 실행된다. EC2 덤프를 복원할 계획이면 그 전에
@@ -64,6 +70,13 @@ services:
 
   redis:
     image: redis:7-alpine
+    # 127.0.0.1 에만 연다. 밖에서는 닿지 않고, 서버에 SSH 로 들어온
+    # 터널만 볼 수 있다. 집 데스크탑을 일꾼으로 붙일 때 그 터널을 쓴다.
+    #
+    # 0.0.0.0 으로 열면 안 된다. Redis 는 기본적으로 암호가 없어서
+    # 공개되는 순간 누구나 큐를 읽고 쓸 수 있다.
+    ports:
+      - "127.0.0.1:6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s

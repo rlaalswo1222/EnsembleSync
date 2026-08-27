@@ -111,3 +111,12 @@ ROOM_INACTIVE_DAYS = int(os.getenv("ROOM_INACTIVE_DAYS", "20"))
 ROOM_WARN_WITHIN_DAYS = int(os.getenv("ROOM_WARN_WITHIN_DAYS", "7"))
 
 SEPARATED_DIR = "uploads/separated"
+
+# 멀리 있는 분석 일꾼이 결과를 되돌려 보낼 때 쓰는 열쇠.
+#
+# 집 데스크탑처럼 서버 밖에 있는 기계가 워커로 붙을 수 있다. 그 기계는
+# 서버의 디스크를 볼 수 없으므로 결과를 HTTP 로 올려야 하는데, 그 창구가
+# 열려 있으면 누구나 남의 방에 가짜 결과를 밀어넣을 수 있다.
+#
+# 비어 있으면 창구 자체가 닫힌다. 원격 워커를 쓰지 않는 동안에는 그게 맞다.
+WORKER_SECRET = os.getenv("WORKER_SECRET", "").strip()

@@ -11,6 +11,7 @@ from celery.signals import worker_ready
 from database import get_db
 from celery_app import celery_app
 import track_analysis
+import worker_io
 from config import REDIS_HOST, REDIS_PORT, local_upload_path, public_url
 
 # Redis 클라이언트 (pub/sub용)
@@ -31,6 +32,16 @@ STEM_NAMES = ["vocals", "drums", "bass", "other"]
 
 # 재생용 mp3 의 비트레이트. 분리 트랙은 원래 완벽한 음질이 아니라 192k 면 충분하다.
 MP3_BITRATE = "192k"
+
+# demucs 가 토막을 몇 개씩 동시에 처리할지.
+#
+# 기계마다 알맞은 값이 다르다. 실측:
+#   오라클 2코어    없음 302초 · -j2 288초   (+4.7%)  코어를 이미 다 씀
+#   데스크탑 6코어  없음  96초 · -j2  64초   (+33%)   코어가 놀고 있었음
+#
+# 프로세스마다 모델을 따로 들고 있어서 메모리가 는다(2.0 → 3.3GB). 코어가
+# 적은 기계에서는 얻는 것보다 잃는 것이 크다. 그래서 환경변수로 뺀다.
+DEMUCS_JOBS = int(os.getenv("DEMUCS_JOBS", "0"))
 
 # 새 곡을 분석하면 그 방의 이전 곡 결과를 지운다.
 #
@@ -240,6 +251,10 @@ def separate_audio_task(self, file_path: str, room_id: str, job_id: str):
         # 큐에서 정직하게 기다리던 것까지 실패로 만든다.
         _mark_processing(job_id)
 
+        # 서버 밖에서 도는 일꾼은 디스크를 함께 쓰지 않는다. 원본을
+        # 내려받아 놓고 나머지는 똑같이 진행한다.
+        file_path = worker_io.fetch_input(job_id, file_path)
+
         original = Path(file_path)
         tmp_dir = tempfile.mkdtemp()
         input_path = ""
@@ -271,8 +286,10 @@ def separate_audio_task(self, file_path: str, room_id: str, job_id: str):
             sys.executable, "-m", "demucs",
             "--name", DEMUCS_MODEL,
             "--out", output_base_dir,
-            input_path
         ]
+        if DEMUCS_JOBS > 0:
+            cmd += ["-j", str(DEMUCS_JOBS)]
+        cmd.append(input_path)
 
         # Popen을 사용하여 실시간으로 로그(출력)를 한 줄씩 읽어옵니다.
         process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
@@ -340,6 +357,13 @@ def separate_audio_task(self, file_path: str, room_id: str, job_id: str):
             print(f"[mp3] 변환 건너뜀 (분리는 정상): {mp3_error}")
 
         _publish(room_id, job_id, "save", "결과 저장 중")
+
+        # 데이터베이스에 적기 전에 파일부터 보낸다.
+        #
+        # 순서가 뒤집히면, 전송이 실패했는데 작업은 done 으로 표시되어
+        # 앱이 없는 파일을 받으러 간다. 파일이 제자리에 놓인 것을 확인한
+        # 뒤에 완료로 적어야 한다.
+        worker_io.send_results(job_id, output_base_dir)
 
         # DB 에는 상대경로로 저장한다 (서버 주소가 바뀌어도 레코드 수정 불필요)
         base_path = f"/uploads/separated/{job_id}/{DEMUCS_MODEL}/{stem_name}"
@@ -420,3 +444,10 @@ def separate_audio_task(self, file_path: str, room_id: str, job_id: str):
         # 가리키고 있어서, 삭제하면 BPM 결과 화면의 재생이 404 가 된다.
         if tmp_dir and os.path.exists(tmp_dir):
             shutil.rmtree(tmp_dir, ignore_errors=True)
+
+        # 서버 밖에서 돈 경우에는 받아온 원본과 결과 사본도 지운다.
+        # 여기 남은 것은 이미 서버로 보낸 것의 복사본일 뿐이다.
+        try:
+            worker_io.cleanup(output_base_dir)
+        except Exception as cleanup_error:
+            print(f"[worker] 뒷정리 실패: {cleanup_error}")
