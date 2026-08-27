@@ -26,11 +26,23 @@ void main() {
     expect(key('A', 'major', sure).short(), 'A');
   });
 
-  test('확신이 없으면 붙이지 않는다', () {
-    // 나란한조는 구성음이 같아 기계가 자주 헷갈린다. 그때 Bm 이라고
-    // 못박으면 틀린 확신을 주게 된다. 아래 줄에 두 후보를 함께 띄운다.
-    expect(key('B', 'minor', unsure).short(), 'B');
-    expect(key('B', 'minor', unsure).relativeLabel, 'D Major');
+  test('확신이 없으면 나란한장조로 적는다', () {
+    // 나란한조는 구성음도 조표도 같아 기계가 자주 헷갈린다. 그때 'C#m'
+    // 이라 못박으면 틀린 확신을 주지만, 조표가 같으므로 'E' 라고 적으면
+    // 어느 쪽이든 틀리지 않는다.
+    expect(key('C#', 'minor', unsure).short(), 'E');
+    expect(key('B', 'minor', unsure).short(), 'D');
+    // 아래 줄에는 두 후보를 함께 띄운다.
+    expect(key('C#', 'minor', unsure).relativeLabel, 'E Major');
+  });
+
+  test('확신 없는 장조는 그대로 둔다', () {
+    expect(key('E', 'major', unsure).short(), 'E');
+  });
+
+  test('확신 없이 이조해도 장조 기준으로 옮긴다', () {
+    // C#단조(=E장조)를 2반음 올리면 F#장조다.
+    expect(key('C#', 'minor', unsure).short(semitones: 2), 'F#');
   });
 
   test('키를 올려도 단조는 단조다', () {
