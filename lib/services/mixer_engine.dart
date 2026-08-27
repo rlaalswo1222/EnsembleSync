@@ -96,23 +96,26 @@ class MixerEngine extends ChangeNotifier {
 
       // 웹에서는 트랙별 필터가 막혀 있어 전역 필터만 쓸 수 있다. 키 조절은
       // 어차피 곡 전체에 걸리는 것이라 전역으로 충분하다.
+      //
+      // 쓸 수 있는지만 확인하고 곧바로 끈다.
+      //
+      // 예전에는 켜 둔 채로 두었다. 0반음이면 아무 일도 안 할 것이라
+      // 여겼는데 그렇지 않았다. 피치 시프트는 소리를 잘게 잘라 늘렸다
+      // 줄였다 겹쳐 붙이는 방식이라, 0에서도 신호가 그 과정을 한 번
+      // 통과하면서 음량이 깎인다. 원본보다 눈에 띄게 작게 들렸다.
       try {
-        if (!_soloud.filters.pitchShiftFilter.isActive) {
-          _soloud.filters.pitchShiftFilter.activate();
-        }
-        _pitchAvailable = _soloud.filters.pitchShiftFilter.isActive;
-
-        // 필터는 SoLoud 하나에 붙어 있고, 이 객체는 곡마다 새로 만들어진다.
-        // 그래서 앞 곡에서 올려둔 키가 필터에 그대로 남는다. 이쪽 _semitones
-        // 는 0 으로 시작하므로 화면은 '원키'라고 하는데 소리는 올라간
-        // 채였다. 남은 값을 믿지 말고 매번 이쪽 값을 써 넣는다.
-        if (_pitchAvailable) {
-          _soloud.filters.pitchShiftFilter.semitones.value =
-              _semitones.toDouble();
-        }
+        final filter = _soloud.filters.pitchShiftFilter;
+        if (!filter.isActive) filter.activate();
+        _pitchAvailable = filter.isActive;
+        if (_pitchAvailable) filter.deactivate();
       } catch (_) {
         _pitchAvailable = false;
       }
+
+      // 앞 곡에서 올려둔 키가 필터에 남아 있을 수 있다. 이 객체는 곡마다
+      // 새로 만들어져 _semitones 가 0 으로 시작하므로, 화면은 '원키'라고
+      // 하는데 소리는 올라간 채가 된다. 여기서 한 번 맞춘다.
+      _applyPitch();
 
       for (final MapEntry<String, String> e in urls.entries) {
         _loadingLabel = '${e.key} 불러오는 중';
@@ -282,14 +285,28 @@ class MixerEngine extends ChangeNotifier {
   void setSemitones(int value) {
     final int clamped = value.clamp(-maxSemitones, maxSemitones);
     _semitones = clamped;
-    if (_pitchAvailable) {
-      try {
-        _soloud.filters.pitchShiftFilter.semitones.value = clamped.toDouble();
-      } catch (_) {
-        _pitchAvailable = false;
-      }
-    }
+    _applyPitch();
     _notify();
+  }
+
+  /// 지금 키 값에 맞게 필터를 켜거나 끈다.
+  ///
+  /// 원키(0반음)에서는 아예 끈다. 켜 두면 아무것도 바꾸지 않는 상태에서도
+  /// 소리가 깎이기 때문이다. 키를 건드리지 않은 사람은 원음을 그대로
+  /// 들어야 한다.
+  void _applyPitch() {
+    if (!_pitchAvailable || _disposed) return;
+    try {
+      final filter = _soloud.filters.pitchShiftFilter;
+      if (_semitones == 0) {
+        if (filter.isActive) filter.deactivate();
+        return;
+      }
+      if (!filter.isActive) filter.activate();
+      filter.semitones.value = _semitones.toDouble();
+    } catch (_) {
+      _pitchAvailable = false;
+    }
   }
 
   double _effectiveVolume(String id) =>
