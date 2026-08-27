@@ -93,7 +93,9 @@ class _JoinRoomScreenState extends State<JoinRoomScreen> {
       body: SafeArea(
         child: Center(
           child: Container(
-            constraints: const BoxConstraints(maxWidth: 400),
+            // 첫 화면과 같은 폭을 쓴다. 두 화면을 오갈 때 상자 크기가
+            // 바뀌면 화면이 튀어 보인다.
+            constraints: const BoxConstraints(maxWidth: 480),
             decoration: const BoxDecoration(color: AppColors.surface),
             child: Column(
               children: [
