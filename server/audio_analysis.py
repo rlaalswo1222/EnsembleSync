@@ -211,63 +211,77 @@ async def cancel_analysis(http: Request, job_id: str):
             conn.close()
 
 # 비율 표본이 이만큼은 있어야 믿는다.
-MIN_SAMPLES = 3
+MIN_SAMPLES = 2
 
-# 오디오 1초를 처리하는 데 걸리는 초.
+# 곡 길이와 상관없이 드는 시간(초).
 #
-# 2 OCPU 에서 3분 20초(199.6초) 곡이 302.2초 걸렸다 — 1.51 이다.
-# (htdemucs, 동시 실행 1개, demucs 가 코어 1.85개를 씀)
-# 표본이 쌓이기 전까지 이 값을 쓴다.
-FALLBACK_RATE = 1.55
+# 모델을 올리고, ffmpeg 으로 바꾸고, 파형·키·코드를 분석하고, mp3 로
+# 인코딩하는 데 드는 값이다. 실측에서 드러났다 — 27초짜리 곡이 48초
+# 걸렸는데, 곡 길이에만 비례한다면 설명이 안 되는 값이다.
+#
+# 이걸 세지 않으면 짧은 곡의 "1초당 비용"이 터무니없이 높게 잡히고,
+# 그 값이 평균에 섞여 긴 곡의 예상까지 부풀린다.
+FIXED_SECONDS = 35.0
+
+# 오디오 1초를 처리하는 데 걸리는 초 (고정 비용을 뺀 뒤).
+#
+# 표본이 쌓이기 전까지 쓸 값. 2 OCPU 서버 기준이다.
+FALLBACK_RATE = 1.35
 
 # 비율이 이 범위를 벗어나면 표본이 이상한 것으로 보고 버린다.
-#
-# 서버가 잠깐 다른 일에 눌렸거나, 길이를 잘못 읽은 파일 하나가 섞이면
-# 평균이 크게 흔들린다. 그 값으로 "약 3시간" 같은 소리를 하게 된다.
-RATE_MIN, RATE_MAX = 0.5, 6.0
+RATE_MIN, RATE_MAX = 0.05, 6.0
 
-# 길이를 모르는 곡에 가정하는 값. 예전에 올라온 것들은 duration_sec 이
-# 비어 있다.
+# 최근 몇 건까지 보는가.
+#
+# 짧게 본다. 이 서비스는 곡을 처리하는 기계가 바뀐다 — 집 데스크탑이
+# 켜져 있으면 그쪽이, 꺼져 있으면 서버가 맡는다. 둘의 속도가 3배 넘게
+# 차이나므로 20건을 평균 내면 어느 쪽도 맞지 않는 값이 나온다.
+#
+# 실제로 그랬다. 데스크탑이 4분 곡을 1.5분에 끝내는데 5.6분이라고
+# 알려주고 있었다.
+RECENT = 5
+
+# 길이를 모르는 곡에 가정하는 값.
 ASSUMED_DURATION = 240
 
 
 def _rate(cur) -> float:
-    """오디오 1초당 실제로 걸린 초.
+    """오디오 1초당 걸리는 초. 고정 비용을 뺀 값이다.
 
-    예전에는 "최근 작업들이 걸린 시간의 평균" 을 그대로 썼다. 곡 길이를
-    보지 않았다는 뜻이다. 1분짜리를 올린 사람과 6분짜리를 올린 사람에게
-    같은 숫자를 내놓았으니 맞을 리가 없었다.
-
-    길이로 나눈 비율은 곡이 달라져도 거의 같다. 그래서 이쪽을 평균 낸다.
-
-    requested_at 이 아니라 started_at 부터 잰다. 큐에서 기다린 시간까지
-    넣으면 대기가 길수록 비율이 부풀고, 그 값으로 다시 대기 시간을
-    계산하니 점점 커진다.
-
-    duration_sec 이 있는 것만 센다. 그 값을 채우기 시작한 것이 동시 실행을
-    1개로 줄인 시점과 같아서, 옛 기록(두 개가 겹쳐 돌아 두 배로 느렸던
-    때)이 자연히 걸러진다.
+    평균이 아니라 중앙값을 쓴다. 기계가 바뀌는 시점에는 빠른 표본과 느린
+    표본이 섞이는데, 평균은 그 사이의 아무 데도 아닌 값을 내놓는다.
+    중앙값은 다수 쪽으로 붙는다.
     """
     cur.execute(
         """
-        SELECT avg(rate) AS rate, count(*) AS n FROM (
-            SELECT EXTRACT(EPOCH FROM (aj.completed_at - aj.started_at))
-                   / af.duration_sec AS rate
-            FROM analysis_job aj
-            JOIN audio_file af ON af.id = aj.audio_file_id
-            WHERE aj.job_type = 'separation' AND aj.status = 'done'
-              AND aj.started_at IS NOT NULL AND aj.completed_at IS NOT NULL
-              AND af.duration_sec IS NOT NULL AND af.duration_sec > 0
-            ORDER BY aj.completed_at DESC LIMIT 20
-        ) recent
-        WHERE rate BETWEEN %s AND %s
+        SELECT (EXTRACT(EPOCH FROM (aj.completed_at - aj.started_at)) - %s)
+               / af.duration_sec AS rate
+        FROM analysis_job aj
+        JOIN audio_file af ON af.id = aj.audio_file_id
+        WHERE aj.job_type = 'separation' AND aj.status = 'done'
+          AND aj.started_at IS NOT NULL AND aj.completed_at IS NOT NULL
+          AND af.duration_sec IS NOT NULL AND af.duration_sec > 0
+        ORDER BY aj.completed_at DESC LIMIT %s
         """,
-        (RATE_MIN, RATE_MAX),
+        (FIXED_SECONDS, RECENT),
     )
-    row = cur.fetchone()
-    if not row or not row["n"] or row["n"] < MIN_SAMPLES or not row["rate"]:
+    rates = [
+        float(r["rate"])
+        for r in cur.fetchall()
+        if r["rate"] is not None and RATE_MIN <= float(r["rate"]) <= RATE_MAX
+    ]
+    if len(rates) < MIN_SAMPLES:
         return FALLBACK_RATE
-    return float(row["rate"])
+    rates.sort()
+    mid = len(rates) // 2
+    if len(rates) % 2:
+        return rates[mid]
+    return (rates[mid - 1] + rates[mid]) / 2
+
+
+def _estimate(duration: float, rate: float) -> float:
+    """이 길이의 곡을 처리하는 데 걸릴 시간."""
+    return FIXED_SECONDS + rate * duration
 
 
 def _durations(cur, job_ids) -> dict:
@@ -324,7 +338,7 @@ def _queue_info(cur, job) -> dict:
         )
         row = cur.fetchone() or {}
         elapsed = float(row.get("sec") or 0)
-        total = (row.get("duration_sec") or ASSUMED_DURATION) * rate
+        total = _estimate(row.get("duration_sec") or ASSUMED_DURATION, rate)
         return {
             "queue_position": 0,
             "eta_seconds": max(0, int(total - elapsed)),
@@ -362,17 +376,17 @@ def _queue_info(cur, job) -> dict:
 
     eta = 0.0
     for r in live:
-        total = lengths.get(r["id"], ASSUMED_DURATION) * rate
+        total = _estimate(lengths.get(r["id"], ASSUMED_DURATION), rate)
         cur.execute(
             "SELECT EXTRACT(EPOCH FROM (now() - %s)) AS sec", (r["started_at"],)
         )
         elapsed = float((cur.fetchone() or {}).get("sec") or 0)
         eta += max(0.0, total - elapsed)
     for r in waiting:
-        eta += lengths.get(r["id"], ASSUMED_DURATION) * rate
+        eta += _estimate(lengths.get(r["id"], ASSUMED_DURATION), rate)
 
     # 내 곡을 도는 데 걸리는 시간.
-    own = lengths.get(my_id, ASSUMED_DURATION) * rate
+    own = _estimate(lengths.get(my_id, ASSUMED_DURATION), rate)
 
     return {
         "queue_position": len(ahead),
