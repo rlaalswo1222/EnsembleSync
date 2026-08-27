@@ -207,13 +207,25 @@ def _publish(room_id: str, job_id: str, stage: str, message: str,
 
 
 def _encode_mp3(demucs_out: Path) -> dict:
-    """스템 wav 를 재생용 mp3 로 변환한다. {스템: 파일명} 을 돌려준다.
+    """스템 wav 를 mp3 로 바꾸고 wav 는 지운다. {스템: 파일명} 을 돌려준다.
 
-    demucs 가 내놓는 wav 는 4분 곡 기준 트랙당 40MB 라 4개를 받으면 160MB 다.
+    demucs 가 내놓는 wav 는 4분 곡 기준 트랙당 40MB 라 4개면 160MB 다.
     SoLoud 는 스트리밍이 아니라 파일 전체를 메모리에 올려놓고 재생하므로,
-    그대로 두면 재생 시작 전에 160MB 를 받아야 한다. mp3 로 7배 줄인다.
+    그대로 두면 재생 시작 전에 160MB 를 받아야 한다.
 
-    원본 wav 는 지우지 않는다. 다운로드는 계속 무손실로 받게 한다.
+    한동안 wav 를 남겨 두었다. 다운로드만은 무손실로 받게 하려는 뜻이었는데,
+    치르는 값이 컸다.
+
+      곡 하나당      전송      서버 디스크
+      wav 유지      153MB       337MB
+      mp3 만         12MB        25MB
+
+    그리고 지키려던 무손실이 실은 별 뜻이 없었다. 분리 트랙에는 이미 다른
+    악기가 새어든 자국이 남아 있어서, wav 는 원음이 아니라 그 불완전함을
+    그대로 보존할 뿐이다. 이 앱에서 트랙을 내려받는 이유는 베이스 라인만
+    반복해 들어보려는 것이지 마스터링이 아니다.
+
+    디스크 13배가 무료 서버에서는 곧 수명이다.
     """
     procs = {}
     for name in STEM_NAMES:
@@ -233,6 +245,12 @@ def _encode_mp3(demucs_out: Path) -> dict:
         try:
             if proc.wait(timeout=600) == 0 and dst.exists():
                 encoded[name] = dst.name
+                # 변환이 끝난 것부터 지운다. 실패한 트랙의 wav 는 남겨서
+                # 그 트랙만이라도 받을 수 있게 한다.
+                try:
+                    (demucs_out / f"{name}.wav").unlink()
+                except OSError:
+                    pass
         except Exception as e:
             proc.kill()
             print(f"[mp3] {name} 변환 실패: {e}")
@@ -368,11 +386,12 @@ def separate_audio_task(self, file_path: str, room_id: str, job_id: str):
         # DB 에는 상대경로로 저장한다 (서버 주소가 바뀌어도 레코드 수정 불필요)
         base_path = f"/uploads/separated/{job_id}/{DEMUCS_MODEL}/{stem_name}"
         analysis_url = f"/uploads/separated/{job_id}/analysis.json"
-        tracks_dict = {
-            name: f"{base_path}/{name}.wav" for name in STEM_NAMES
-        }
 
-        # 재생에 쓸 주소. wav 는 다운로드용으로 그대로 남는다.
+        # 재생도 다운로드도 mp3 를 쓴다. 변환에 실패한 트랙만 wav 로 남는다.
+        tracks_dict = {
+            name: f"{base_path}/{mp3_names.get(name, name + '.wav')}"
+            for name in STEM_NAMES
+        }
         streams_dict = {
             name: f"{base_path}/{filename}"
             for name, filename in mp3_names.items()
