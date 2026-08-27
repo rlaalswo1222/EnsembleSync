@@ -4,6 +4,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
+import config
 import migrate
 import signing
 import room_create
@@ -17,6 +18,7 @@ import track_download
 import score_query
 import score_upload
 import websocket
+import worker_api
 import bpm_result
 import os
 
@@ -92,6 +94,7 @@ app.include_router(score_query.router)
 app.include_router(score_upload.router)
 app.include_router(websocket.router)
 app.include_router(bpm_result.router)
+app.include_router(worker_api.router)
 
 
 @app.get("/api/health")
@@ -109,6 +112,8 @@ async def health():
         # 서명이 꺼져 있으면 업로드 파일이 그대로 열려 있다는 뜻이다.
         # 조용히 꺼져 있는 것이 제일 나쁘므로 여기서 보이게 한다.
         "file_signing": signing.ENABLED,
+        # 원격 일꾼을 받을 준비가 됐는지. 열쇠가 없으면 창구가 닫혀 있다.
+        "remote_worker": bool(config.WORKER_SECRET),
         "disk_tight": usage["ratio"] >= disk.CLEANUP_HARD_RATIO,
         "accepting_uploads": usage["free_gb"] >= disk.MIN_FREE_UPLOAD_GB,
         "accepting_analysis": usage["free_gb"] >= disk.MIN_FREE_ANALYZE_GB,
