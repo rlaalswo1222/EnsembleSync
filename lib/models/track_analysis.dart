@@ -154,20 +154,32 @@ class KeyEstimate {
     return pitchNames[((base + semitones) % 12 + 12) % 12];
   }
 
-  /// 화면에 크게 띄우는 표기. 단조면 m 을 붙인다.
+  /// 화면에 크게 띄우는 표기.
   ///
-  /// 그냥 'B' 라고 쓰면 B장조로 읽힌다. B단조와 B장조는 다른 조인데
-  /// 같은 글자가 되어버린다. 연주자에게는 그 차이가 전부다.
+  /// 확신이 있으면 조성 그대로 쓴다. 단조에는 m 을 붙인다 — 그냥 'B' 라고
+  /// 쓰면 B장조로 읽히는데, B단조와 B장조는 다른 조다. 연주자에게는 그
+  /// 차이가 전부다.
   ///
-  /// 확신이 없을 때는 붙이지 않는다. 나란한조는 구성음이 같아 기계가
-  /// 자주 헷갈리는데, 그때 'Bm' 이라고 못박으면 틀린 확신을 주게 된다.
-  /// 그런 경우에는 아래 줄에 두 후보를 함께 띄운다.
+  /// 확신이 없으면 장조 쪽으로 적는다. 나란한조(C#단조와 E장조)는 구성음도
+  /// 조표도 같아서 기계가 자주 헷갈린다. 둘 중 하나로 못 가릴 때 'C#m' 이라
+  /// 못박으면 틀린 확신을 주지만, 조표가 같으므로 'E' 라고 적으면 어느
+  /// 쪽이든 틀리지 않는다. 악보에 조표를 적을 때도 그렇게 한다.
+  ///
+  /// 어느 쪽이든 아래 줄에는 두 후보를 함께 띄운다.
   String? short({int semitones = 0}) {
     if (!isValid) return null;
-    final String root =
-        semitones == 0 ? tonic! : transposed(semitones)!;
-    if (isAmbiguous || mode != 'minor') return root;
-    return '${root}m';
+    int root = pitchNames.indexOf(tonic!);
+    bool minor = mode == 'minor';
+
+    if (isAmbiguous && minor) {
+      // 단조의 나란한장조는 단3도 위다. C#단조 → E장조.
+      root = (root + 3) % 12;
+      minor = false;
+    }
+
+    // Dart 의 % 는 음수에서 음수를 돌려주므로 한 번 더 감아준다.
+    root = ((root + semitones) % 12 + 12) % 12;
+    return minor ? '${pitchNames[root]}m' : pitchNames[root];
   }
 
   /// 나란한조. B단조와 D장조처럼 구성음이 같아 기계 판정이 흔들리는 짝이다.
