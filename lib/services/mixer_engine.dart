@@ -45,6 +45,46 @@ class MixerEngine extends ChangeNotifier {
   /// 키 조절 한계. ±7 을 넘어가면 실시간 피치 시프트 특유의 금속음이 든다.
   static const int maxSemitones = 7;
 
+  /// 재생 음량을 끌어올리는 크기(dB).
+  ///
+  /// 원본보다 작게 들린다는 말이 계속 나왔다. 파일 자체는 멀쩡했다.
+  /// 서버에서 재보니 원본 -19.17dB, 트랙 넷을 더한 것 -19.70dB 로 차이가
+  /// 0.53dB 뿐이다. 사람이 알아채는 선(1dB) 아래다.
+  ///
+  /// 진짜 원인은 [_initEngine] 쪽이었다. 이건 그 위에 얹는 여유분이다.
+  ///
+  /// 얼마나 올릴지는 실제 분리 결과 네 곡에 리미터를 그대로 걸어 보고
+  /// 정했다. 더 세게 밀수록 리미터가 되받아 깎는다.
+  ///
+  ///     드라이브   실제로 커진 양   리미터가 깎은 양(평균)
+  ///     +2dB       0.7 ~ 1.9dB      0.05 ~ 1.1dB
+  ///     +3dB       0.8 ~ 2.6dB      0.2 ~ 1.9dB
+  ///     +6dB       1.1 ~ 4.2dB      2.1 ~ 4.4dB
+  ///
+  /// +6 은 숫자만 크고 남는 게 없다. 이미 큰 곡은 1.1dB 올리자고 평균
+  /// 4.4dB 를 깎아내는데, 그렇게 눌린 소리는 커진 게 아니라 납작해진다.
+  /// +3 까지가 깎이는 양이 눈에 안 띄면서 실제로 커지는 구간이다.
+  static const double _makeupDb = 3.0;
+
+  /// 리미터가 넘기지 않는 최대치(dB). 0 이 아니라 -1 로 둔다.
+  ///
+  /// 여유를 조금 남긴다. 트랙 넷을 더하면 원래도 꽉 찬다 — 잰 곡 중에는
+  /// 합이 1.026 까지 간 것도 있었다. 그대로 두면 거기서 지직거린다.
+  static const double _ceilingDb = -1.0;
+
+  /// 리미터가 미리 내다보는 시간(ms).
+  ///
+  /// 이만큼 앞을 보고 미리 음량을 줄여 둔다. 그래서 큰 소리가 도착했을 때
+  /// 이미 눌린 상태다. 뒤늦게 자르는 것과 달리 딱 소리가 나지 않는다.
+  /// 전역 필터라 네 트랙에 똑같이 걸리므로 트랙끼리 어긋나지 않는다.
+  static const double _lookaheadMs = 5.0;
+
+  /// 줄인 음량을 되돌리는 데 걸리는 시간(ms).
+  ///
+  /// 짧으면 드럼 한 대마다 주변 소리가 들썩인다. 길면 한 번 눌린 뒤로
+  /// 한참 답답하다. 그 사이를 잡는다.
+  static const double _releaseMs = 120.0;
+
   /// 오디오 엔진 초기화를 기다리는 한계.
   ///
   /// SoLoud 의 init() 은 앞선 초기화 뒤에 줄을 서는 구조라, 한 번 멈추면
@@ -94,28 +134,7 @@ class MixerEngine extends ChangeNotifier {
       }
       if (_disposed) return;
 
-      // 웹에서는 트랙별 필터가 막혀 있어 전역 필터만 쓸 수 있다. 키 조절은
-      // 어차피 곡 전체에 걸리는 것이라 전역으로 충분하다.
-      //
-      // 쓸 수 있는지만 확인하고 곧바로 끈다.
-      //
-      // 예전에는 켜 둔 채로 두었다. 0반음이면 아무 일도 안 할 것이라
-      // 여겼는데 그렇지 않았다. 피치 시프트는 소리를 잘게 잘라 늘렸다
-      // 줄였다 겹쳐 붙이는 방식이라, 0에서도 신호가 그 과정을 한 번
-      // 통과하면서 음량이 깎인다. 원본보다 눈에 띄게 작게 들렸다.
-      try {
-        final filter = _soloud.filters.pitchShiftFilter;
-        if (!filter.isActive) filter.activate();
-        _pitchAvailable = filter.isActive;
-        if (_pitchAvailable) filter.deactivate();
-      } catch (_) {
-        _pitchAvailable = false;
-      }
-
-      // 앞 곡에서 올려둔 키가 필터에 남아 있을 수 있다. 이 객체는 곡마다
-      // 새로 만들어져 _semitones 가 0 으로 시작하므로, 화면은 '원키'라고
-      // 하는데 소리는 올라간 채가 된다. 여기서 한 번 맞춘다.
-      _applyPitch();
+      _setupFilters();
 
       for (final MapEntry<String, String> e in urls.entries) {
         _loadingLabel = '${e.key} 불러오는 중';
@@ -148,9 +167,19 @@ class MixerEngine extends ChangeNotifier {
   /// 앱을 핫 리스타트하면 네이티브 쪽 엔진이 살아 있는 채로 Dart 만 새로
   /// 시작해서 init() 이 돌아오지 않는 일이 있다. 그때는 deinit() 으로
   /// 정리하고 다시 띄우면 살아난다.
+  /// 저지연 모드를 끄고 띄운다.
+  ///
+  /// 기본값은 켜짐이다. 그러면 안드로이드에서 오디오 속성을 붙이지 않고
+  /// 빠른 경로로 나가는데, 그 경로는 폰이 음악에 걸어 주는 후처리를
+  /// 건너뛴다. 원본을 듣던 재생기는 일반 미디어 경로라 그걸 다 거친다.
+  /// 같은 파형인데 이쪽만 작고 밋밋하게 들리던 이유다.
+  ///
+  /// 대신 소리가 나오기까지 조금 늦는다. 녹음을 들으며 연주하는 앱이라면
+  /// 문제지만, 여기서는 재생 버튼을 누른 뒤 몇 밀리초 늦는 것뿐이다.
+  /// 트랙 네 개에 걸리는 지연은 똑같으므로 서로 어긋나지도 않는다.
   Future<void> _initEngine() async {
     try {
-      await _soloud.init().timeout(_initTimeout);
+      await _soloud.init(lowLatency: false).timeout(_initTimeout);
       return;
     } on TimeoutException {
       _log('오디오 엔진 초기화가 ${_initTimeout.inSeconds}초를 넘겼다. 다시 시도한다.');
@@ -163,7 +192,7 @@ class MixerEngine extends ChangeNotifier {
     } catch (e) {
       _log('deinit 실패(무시): $e');
     }
-    await _soloud.init().timeout(
+    await _soloud.init(lowLatency: false).timeout(
           _initTimeout,
           onTimeout: () => throw Exception(
             '오디오 엔진을 시작하지 못했습니다. 앱을 완전히 껐다가 다시 켜주세요.',
@@ -289,23 +318,47 @@ class MixerEngine extends ChangeNotifier {
     _notify();
   }
 
-  /// 지금 키 값에 맞게 필터를 켜거나 끈다.
-  ///
-  /// 원키(0반음)에서는 아예 끈다. 켜 두면 아무것도 바꾸지 않는 상태에서도
-  /// 소리가 깎이기 때문이다. 키를 건드리지 않은 사람은 원음을 그대로
-  /// 들어야 한다.
   void _applyPitch() {
     if (!_pitchAvailable || _disposed) return;
     try {
-      final filter = _soloud.filters.pitchShiftFilter;
-      if (_semitones == 0) {
-        if (filter.isActive) filter.deactivate();
-        return;
-      }
-      if (!filter.isActive) filter.activate();
-      filter.semitones.value = _semitones.toDouble();
+      _soloud.filters.pitchShiftFilter.semitones.value = _semitones.toDouble();
     } catch (_) {
       _pitchAvailable = false;
+    }
+  }
+
+  /// 전역 필터 두 개를 곡 시작 전에 걸어 둔다.
+  ///
+  /// 재생 중에 켜고 끄지 않는다. 필터가 붙는 순간 소리가 한 번 움찔한다.
+  /// 처음에 원키일 때만 피치 필터를 꺼 봤는데, 키를 건드릴 때마다 그
+  /// 끊김이 났다. 계속 켜 두고 값만 0으로 두는 편이 낫다.
+  ///
+  /// 웹에서는 트랙별 필터가 막혀 있어 전역만 쓸 수 있다. 키도 음량도
+  /// 어차피 곡 전체에 거는 것이라 전역으로 충분하다.
+  void _setupFilters() {
+    try {
+      final pitch = _soloud.filters.pitchShiftFilter;
+      if (!pitch.isActive) pitch.activate();
+      _pitchAvailable = pitch.isActive;
+    } catch (_) {
+      _pitchAvailable = false;
+    }
+
+    // 앞 곡에서 올려둔 키가 필터에 남아 있다. 이 객체는 곡마다 새로
+    // 만들어져 _semitones 가 0 으로 시작하므로, 화면은 '원키'라고 하는데
+    // 소리는 올라간 채가 된다. 여기서 한 번 맞춘다.
+    _applyPitch();
+
+    try {
+      final limiter = _soloud.filters.limiterFilter;
+      if (!limiter.isActive) limiter.activate();
+      limiter.threshold.value = -_makeupDb;
+      limiter.outputCeiling.value = _ceilingDb;
+      limiter.attackTime.value = _lookaheadMs;
+      limiter.releaseTime.value = _releaseMs;
+    } catch (e) {
+      // 리미터가 없어도 재생은 된다. 조금 작을 뿐이다.
+      _log('리미터를 걸지 못했다(무시): $e');
     }
   }
 
