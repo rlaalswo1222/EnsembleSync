@@ -299,9 +299,28 @@ class _HomeScreenState extends State<HomeScreen>
                         ),
                       ),
                       const SizedBox(height: 2),
-                      Text(
-                        '${room.roomCode} · ${room.nickname} · '
-                        '${room.visitedLabel}',
+                      // 정리가 가까운 방은 여기서 알려준다.
+                      //
+                      // 예고 배너는 방에 들어가야만 보인다. 그런데 안
+                      // 쓰는 방이라 안 들어가고, 안 들어가서 지워진다.
+                      // 예고가 정작 필요한 방에서만 안 보이는 셈이었다.
+                      Text.rich(
+                        TextSpan(
+                          children: <InlineSpan>[
+                            TextSpan(
+                              text: '${room.roomCode} · ${room.nickname} · '
+                                  '${room.visitedLabel}',
+                            ),
+                            if (room.expiryLabel != null)
+                              TextSpan(
+                                text: ' · ${room.expiryLabel}',
+                                style: const TextStyle(
+                                  color: AppColors.danger,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                          ],
+                        ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
