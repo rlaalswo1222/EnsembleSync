@@ -20,6 +20,8 @@ import secrets
 
 from fastapi import Request
 
+from config import ROOM_INACTIVE_DAYS
+
 HEADER = "x-room-token"
 
 # 헤더를 못 붙이는 자리(WebSocket)를 위한 쿼리 이름.
@@ -35,6 +37,23 @@ ENFORCE = os.getenv("ROOM_AUTH_ENFORCE", "1") == "1"
 DENIED = {
     "status": 401,
     "message": "이 방에 접근할 권한이 없습니다. 방 코드로 다시 입장해주세요.",
+}
+
+# 방이 정리되어 사라진 경우.
+#
+# 권한 없음과 갈라서 답한다. 예전에는 둘을 같은 응답으로 묶었는데, 그
+# 바람에 이미 지워진 방을 열면 "방 코드로 다시 입장해주세요" 라는 말이
+# 나왔다. 코드를 넣어도 없는 방이라 또 실패한다. 앱이 고장 난 것처럼
+# 보인다.
+#
+# 방 코드로 들어오는 자리(room_enter)는 지금처럼 묶어 둔다. 여섯 자리
+# 코드는 하나씩 넣어보며 실재하는 방을 골라낼 수 있기 때문이다. 이쪽은
+# UUID 를 받는 자리라 찍어서 맞힐 수가 없어 갈라도 안전하다.
+GONE = {
+    "status": 410,
+    "message": (
+        f"이 방은 {ROOM_INACTIVE_DAYS}일 넘게 쓰지 않아 정리되었습니다."
+    ),
 }
 
 
@@ -88,15 +107,32 @@ def room_of_job(cur, job_id: str) -> str | None:
     return row["room_id"] if isinstance(row, dict) else row[0]
 
 
+def room_exists(cur, room_id: str) -> bool:
+    try:
+        cur.execute("SELECT 1 FROM room WHERE id = %s", (room_id,))
+    except Exception:
+        # UUID 형식이 아니면 여기서 터진다. 없는 것과 같다.
+        return False
+    return cur.fetchone() is not None
+
+
 def require(cur, request: Request, room_id: str | None):
     """자격이 없으면 오류 dict 를, 있으면 None 을 돌려준다.
 
-    room_id 가 None 이면 대상 자체를 못 찾은 것이다. 없는 방과 권한 없는
-    방을 같은 응답으로 돌려준다 — 다르게 답하면 방 코드를 하나씩 넣어보며
-    어느 것이 실재하는지 알아낼 수 있다.
+    막을 때 두 가지로 갈라 답한다. 방이 사라진 것과 열쇠가 안 맞는 것은
+    사용자가 할 일이 다르다 — 앞의 경우는 새 방을 만들어야 하고, 뒤의
+    경우는 방 코드로 다시 들어오면 된다.
+
+    room_id 가 None 이면 대상 자체를 못 찾은 것이라 갈라줄 수가 없다.
     """
     if not ENFORCE:
         return None
     if not room_id:
         return DENIED
-    return None if member_of(cur, room_id, token_from(request)) else DENIED
+    try:
+        if member_of(cur, room_id, token_from(request)):
+            return None
+    except Exception:
+        # 질의가 실패했다. 막는 쪽으로 답한다.
+        return DENIED
+    return DENIED if room_exists(cur, room_id) else GONE
