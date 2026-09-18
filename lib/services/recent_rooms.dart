@@ -23,6 +23,11 @@ class RecentRooms {
   /// 목록에 남기는 최대 개수. 오래된 것부터 밀려난다.
   static const int maxCount = 12;
 
+  /// 이 날수 안쪽이면 목록에서 정리 예고를 띄운다.
+  ///
+  /// 서버의 ROOM_WARN_WITHIN_DAYS 와 같은 값이다.
+  static const int warnWithinDays = 7;
+
   static Future<List<RecentRoom>> load() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getStringList(_key) ?? const <String>[];
@@ -47,8 +52,13 @@ class RecentRooms {
   }) async {
     if (roomId.isEmpty || roomCode.isEmpty) return;
 
-    final rooms = await load()
-      ..removeWhere((r) => r.roomId == roomId);
+    final rooms = await load();
+    final int at = rooms.indexWhere((r) => r.roomId == roomId);
+    // 이미 알던 방이면 기한은 그대로 들고 간다. 다시 들어갔다고 해서
+    // 서버의 정리 기한이 늘어나는 것은 아니다.
+    final RecentRoom? old = at >= 0 ? rooms[at] : null;
+    if (at >= 0) rooms.removeAt(at);
+
     rooms.insert(
       0,
       RecentRoom(
@@ -58,10 +68,28 @@ class RecentRooms {
         nickname: nickname,
         visitedAt: DateTime.now(),
         token: token,
+        daysLeft: old?.daysLeft,
+        daysLeftAt: old?.daysLeftAt,
       ),
     );
 
     await _save(rooms.take(maxCount).toList());
+  }
+
+  /// 서버에서 들은 남은 날수를 적어 둔다.
+  ///
+  /// 방에 들어가야만 알 수 있는 값이라, 들은 김에 목록에도 남긴다.
+  /// 그래야 안 들어간 방의 기한도 첫 화면에서 보인다.
+  static Future<void> noteDaysLeft(String roomId, int daysLeft) async {
+    final rooms = await load();
+    final int at = rooms.indexWhere((r) => r.roomId == roomId);
+    if (at < 0) return;
+    if (rooms[at].daysLeft == daysLeft && rooms[at].daysLeftAt != null) return;
+    rooms[at] = rooms[at].copyWith(
+      daysLeft: daysLeft,
+      daysLeftAt: DateTime.now(),
+    );
+    await _save(rooms);
   }
 
   static Future<void> forget(String roomId) async {
@@ -87,6 +115,8 @@ class RecentRoom {
     required this.nickname,
     required this.visitedAt,
     required this.token,
+    this.daysLeft,
+    this.daysLeftAt,
   });
 
   final String roomId;
@@ -101,6 +131,21 @@ class RecentRoom {
   /// 이 방의 열쇠. 이것이 있어야 방 코드를 다시 넣지 않고 들어갈 수 있다.
   final String token;
 
+  /// 마지막으로 들었을 때 서버가 말한 남은 날수와, 그걸 들은 시각.
+  final int? daysLeft;
+  final DateTime? daysLeftAt;
+
+  RecentRoom copyWith({int? daysLeft, DateTime? daysLeftAt}) => RecentRoom(
+        roomId: roomId,
+        roomCode: roomCode,
+        roomName: roomName,
+        nickname: nickname,
+        visitedAt: visitedAt,
+        token: token,
+        daysLeft: daysLeft ?? this.daysLeft,
+        daysLeftAt: daysLeftAt ?? this.daysLeftAt,
+      );
+
   Map<String, dynamic> toJson() => <String, dynamic>{
         'roomId': roomId,
         'roomCode': roomCode,
@@ -108,6 +153,8 @@ class RecentRoom {
         'nickname': nickname,
         'visitedAt': visitedAt.toIso8601String(),
         'token': token,
+        'daysLeft': daysLeft,
+        'daysLeftAt': daysLeftAt?.toIso8601String(),
       };
 
   static RecentRoom? tryParse(String line) {
@@ -121,10 +168,33 @@ class RecentRoom {
         visitedAt: DateTime.tryParse(json['visitedAt'] as String? ?? '') ??
             DateTime.fromMillisecondsSinceEpoch(0),
         token: json['token'] as String? ?? '',
+        daysLeft: (json['daysLeft'] as num?)?.toInt(),
+        daysLeftAt: DateTime.tryParse(json['daysLeftAt'] as String? ?? ''),
       );
     } catch (_) {
       return null;
     }
+  }
+
+  /// 정리까지 며칠 남았는지 어림한다. 모르면 null.
+  ///
+  /// 서버에 다시 묻지 않고 마지막으로 들은 값에서 흘러간 날수를 뺀다.
+  /// 그동안 다른 사람이 이 방을 썼다면 실제로는 더 남아 있다 — 즉 이
+  /// 값은 실제보다 짧게 나올 수는 있어도 길게 나오지는 않는다. 예고는
+  /// 늦는 것보다 이른 편이 낫다.
+  int? get daysLeftEstimate {
+    final int? known = daysLeft;
+    final DateTime? at = daysLeftAt;
+    if (known == null || at == null) return null;
+    final int left = known - DateTime.now().difference(at).inDays;
+    return left < 0 ? 0 : left;
+  }
+
+  /// 목록에 띄울 정리 예고. 아직 여유가 있으면 null.
+  String? get expiryLabel {
+    final int? left = daysLeftEstimate;
+    if (left == null || left > RecentRooms.warnWithinDays) return null;
+    return left <= 0 ? '곧 정리됨' : '$left일 뒤 정리됨';
   }
 
   /// '방금', '3시간 전', '어제' 처럼 사람이 읽는 형태.

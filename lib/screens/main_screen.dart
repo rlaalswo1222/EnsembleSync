@@ -1100,15 +1100,28 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     try {
       final data = await ApiService().getRoomStatus(widget.roomId);
       if (!mounted) return;
+      final int? daysLeft = (data['days_left'] as num?)?.toInt();
       setState(() {
-        _daysLeft = (data['days_left'] as num?)?.toInt();
+        _daysLeft = daysLeft;
         _roomMb = (data['total_mb'] as num?)?.toDouble() ?? 0;
         _showExpiryBanner = data['warn'] == true;
       });
+      // 첫 화면 목록에서도 기한이 보이게 적어 둔다. 이 값은 방에
+      // 들어와야만 알 수 있어서, 들은 김에 남겨야 안 들어간 방의 기한도
+      // 보여줄 수 있다.
+      if (daysLeft != null) {
+        await RecentRooms.noteDaysLeft(widget.roomId, daysLeft);
+      }
     } on ApiException catch (e) {
-      // 이 방의 열쇠가 더 이상 통하지 않는다. 방이 정리됐거나 토큰이
-      // 무효가 된 것이다. 빈 화면을 붙들고 있게 두지 말고 되돌린다.
-      if (e.statusCode == 401) _leaveRoom();
+      // 이 방을 더 볼 수 없다. 빈 화면을 붙들고 있게 두지 말고 되돌린다.
+      //
+      //   401  열쇠가 안 맞는다.        방 코드로 다시 들어오면 된다.
+      //   410  방이 정리되어 사라졌다.  다시 들어올 방이 없다.
+      //
+      // 서버가 보낸 말을 그대로 띄운다. 예전에는 둘을 구분하지 못해
+      // 지워진 방에도 "방 코드로 다시 입장해주세요" 라고 했는데, 코드를
+      // 넣어도 없는 방이라 또 실패했다.
+      if (e.statusCode == 401 || e.statusCode == 410) _leaveRoom(e.message);
     } catch (_) {
       // 안내를 못 띄우는 것뿐이다. 방을 쓰는 데는 지장이 없다.
     }
@@ -1118,14 +1131,17 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   ///
   /// 이 방은 목록에서도 지운다. 남겨두면 눌러도 들어가지지 않는 항목이
   /// 계속 보인다.
-  Future<void> _leaveRoom() async {
+  Future<void> _leaveRoom([String? reason]) async {
     if (_leaving) return;
     _leaving = true;
     await RecentRooms.forget(widget.roomId);
     ApiService.roomToken = null;
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('방에 접근할 수 없습니다. 방 코드로 다시 입장해주세요.')),
+      SnackBar(
+        content: Text(reason ?? '방에 접근할 수 없습니다. 방 코드로 다시 입장해주세요.'),
+        duration: const Duration(seconds: 5),
+      ),
     );
     Navigator.of(context).popUntil((route) => route.isFirst);
   }
